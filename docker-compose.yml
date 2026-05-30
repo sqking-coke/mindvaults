@@ -37,6 +37,11 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - ./logs:/app/logs
+      # ── Obsidian Vault 导入挂载（可选）────────────────────────────
+      # 如需导入本地 Obsidian Vault 目录，取消下方注释并将左侧宿主机
+      # 路径替换为你的实际 Vault 目录。容器内导入时填 /vaults/obsidian
+      # 作为路径即可。:ro 表示只读挂载，保护源文件不被修改。
+      # - /host/path/to/obsidian-vault:/vaults/obsidian:ro
     depends_on:
       db:
         condition: service_healthy

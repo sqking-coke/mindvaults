@@ -5,6 +5,7 @@ import type {
   Conversation,
   Message,
   KnowledgeBase,
+  KbCreateRequest,
   DocumentUploadResponse,
   RetrievalTestResponse,
   RefChunk,
@@ -13,15 +14,20 @@ import type {
   OverviewStats,
   FrequentQuestionsResponse,
   UnansweredListResponse,
+  SystemConfig,
+  SystemConfigRequest,
+  VaultImportRequest,
+  VaultImportResponse,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
+import { formatDateTime } from "@/utils/date";
 import * as api from "./apiClient";
 
 export type { OverviewStats, FrequentQuestionsResponse, UnansweredListResponse };
 
 // ==================== 类型转换 ====================
 
-export function kbDocumentToDocRecord(doc: KbDocument): DocumentRecord {
+export function kbDocumentToDocRecord(doc: KbDocument & { kb_id?: number }): DocumentRecord {
   let status: "uploading" | "parsing" | "success" | "failed" | "disabled" = "failed";
   if (doc.status === 0) status = "failed";
   else if (doc.status === 1) status = "parsing";
@@ -30,14 +36,15 @@ export function kbDocumentToDocRecord(doc: KbDocument): DocumentRecord {
 
   return {
     id: String(doc.id),
-    kbId: "kb-default",
+    kbId: doc.kb_id != null ? String(doc.kb_id) : "kb-default",
     name: doc.doc_name,
     size: "—",
     chars: doc.chunk_count,
     status,
     progress: 100,
-    uploadedAt: doc.created_at?.replace("T", " ").substring(0, 16) || "",
+    uploadedAt: formatDateTime(doc.created_at),
     type: doc.doc_type,
+    description: doc.doc_desc || undefined,
   };
 }
 
@@ -75,16 +82,38 @@ export function historyRecordToMessage(record: ChatHistoryRecord, index: number)
 // ==================== 默认知识库 ====================
 
 const DEFAULT_KNOWLEDGE_BASE: KnowledgeBase = {
-  id: "kb-default",
+  id: 1,
   name: "默认知识库",
   description: "本地私有化 RAG 知识库，所有文档在此统一管理与检索。",
-  docCount: 0,
-  charCount: 0,
-  createdAt: "",
+  doc_count: 0,
+  created_at: "",
+  updated_at: "",
 };
 
 export function getDefaultKnowledgeBase(): KnowledgeBase {
   return { ...DEFAULT_KNOWLEDGE_BASE };
+}
+
+// ==================== 知识库 CRUD API ====================
+
+export async function fetchKnowledgeBases(signal?: AbortSignal): Promise<KnowledgeBase[]> {
+  const data = await api.get<{ items: KnowledgeBase[]; total: number }>(
+    "/api/v1/kb/knowledge-bases",
+    signal,
+  );
+  return data.items;
+}
+
+export async function createKnowledgeBase(req: KbCreateRequest, signal?: AbortSignal): Promise<KnowledgeBase> {
+  return api.post<KnowledgeBase>("/api/v1/kb/knowledge-bases", req, signal);
+}
+
+export async function updateKnowledgeBase(id: number, req: KbCreateRequest, signal?: AbortSignal): Promise<KnowledgeBase> {
+  return api.put<KnowledgeBase>(`/api/v1/kb/knowledge-bases/${id}`, req, signal);
+}
+
+export async function deleteKnowledgeBase(id: number, signal?: AbortSignal): Promise<void> {
+  await api.del(`/api/v1/kb/knowledge-bases/${id}`, signal);
 }
 
 // ==================== 文档 API ====================
@@ -92,12 +121,12 @@ export function getDefaultKnowledgeBase(): KnowledgeBase {
 export async function fetchDocuments(
   page = 1,
   pageSize = 50,
+  kbId?: number,
   signal?: AbortSignal,
 ): Promise<{ docs: DocumentRecord[]; total: number }> {
-  const data = await api.get<{ items: KbDocument[]; total: number }>(
-    `/api/v1/kb/documents?page=${page}&page_size=${pageSize}`,
-    signal,
-  );
+  let path = `/api/v1/kb/documents?page=${page}&page_size=${pageSize}`;
+  if (kbId !== undefined) path += `&kb_id=${kbId}`;
+  const data = await api.get<{ items: (KbDocument & { kb_id?: number })[]; total: number }>(path, signal);
   return {
     docs: data.items.map(kbDocumentToDocRecord),
     total: data.total,
@@ -106,9 +135,14 @@ export async function fetchDocuments(
 
 export async function uploadDocuments(
   files: File[],
+  kbId: number,
   signal?: AbortSignal,
 ): Promise<DocumentUploadResponse> {
-  return api.uploadFiles<DocumentUploadResponse>("/api/v1/kb/documents", files, signal);
+  return api.uploadFiles<DocumentUploadResponse>(
+    `/api/v1/kb/documents?kb_id=${kbId}`,
+    files,
+    signal,
+  );
 }
 
 export async function deleteDocument(docId: number, signal?: AbortSignal): Promise<void> {
@@ -224,7 +258,71 @@ export async function testRetrieval(
   );
 }
 
+// ==================== 推理过程 ====================
+
+export async function fetchThinkingSteps(sessionId: string): Promise<Array<{ phase: string; message: string; elapsed_ms?: number; similarity?: number }>> {
+  const data = await api.get<{ session_id: string; steps: Array<{ phase: string; message: string; elapsed_ms?: number; similarity?: number }> }>(
+    `/api/v1/kb/chat/thinking/${sessionId}`,
+  );
+  return data.steps || [];
+}
+
 // ==================== Chat SSE ====================
 
 export { streamChat } from "./apiClient";
 export type { SSEChatEvent } from "./apiClient";
+
+// ==================== 系统配置 API ====================
+
+export async function fetchSystemConfig(signal?: AbortSignal): Promise<SystemConfig> {
+  return api.get<SystemConfig>("/api/v1/kb/config", signal);
+}
+
+export async function updateSystemConfig(
+  config: SystemConfigRequest,
+  signal?: AbortSignal,
+): Promise<SystemConfig> {
+  return api.put<SystemConfig>("/api/v1/kb/config", config, signal);
+}
+
+export async function fetchOllamaModels(signal?: AbortSignal): Promise<string[]> {
+  return api.get<string[]>("/api/v1/kb/config/ollama-models", signal);
+}
+
+// ==================== 会话 API 扩展 ====================
+
+export async function deleteSession(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await api.del(`/api/v1/kb/chat/sessions/${sessionId}`, signal);
+}
+
+// ==================== Obsidian Vault 导入 API ====================
+
+export async function importVault(
+  req: VaultImportRequest,
+  signal?: AbortSignal,
+): Promise<VaultImportResponse> {
+  return api.post<VaultImportResponse>("/api/v1/kb/vaults/import", req, signal);
+}
+
+export async function uploadVault(
+  files: File[],
+  source: string = "obsidian",
+  signal?: AbortSignal,
+): Promise<VaultImportResponse> {
+  return api.uploadVaultFiles<VaultImportResponse>("/api/v1/kb/vaults/upload", files, source, signal);
+}
+
+// ==================== 系统信息 API ====================
+
+export interface SystemInfo {
+  cpu_name: string;
+  cpu_cores_logical: number;
+  cpu_cores_physical: number;
+  memory_total: string;
+  memory_used: string;
+  memory_percent: number;
+}
+
+export async function fetchSystemInfo(signal?: AbortSignal): Promise<SystemInfo> {
+  return api.get<SystemInfo>("/api/v1/health/system", signal);
+}

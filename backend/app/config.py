@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     # --- 应用 ---
     APP_ENV: str = "development"
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     REDIS_CACHE_TTL: int = 3600
     REDIS_CACHE_ENABLED: bool = True
+    THINKING_TTL_SECONDS: int = 604800  # 7 天
 
     # --- LLM Provider: ollama | openai ---
     # ollama = 调用本地 Ollama 原生 API (http://host:11434/api/chat)

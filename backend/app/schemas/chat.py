@@ -23,6 +23,7 @@ class RefChunk(BaseModel):
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     session_id: str = Field(..., min_length=1, max_length=36)
+    kb_id: int | None = Field(None, description="知识库 ID，不传则使用会话绑定的 KB")
 
 
 # --- 响应模型 ---

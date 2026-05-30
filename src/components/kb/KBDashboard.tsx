@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
-import { 
-  Database, 
-  Plus, 
-  Trash2, 
-  FilePlus, 
-  Clock 
+import { formatDateShort } from "@/utils/date";
+import {
+  Database,
+  Plus,
+  Trash2,
+  FilePlus,
+  Clock
 } from "lucide-react";
 
 export default function KBDashboard() {
@@ -209,7 +210,7 @@ export default function KBDashboard() {
                   
                   <span className="text-slate-400 font-mono flex items-center gap-1">
                     <Clock className="h-3 w-3" />
-                    {kb.createdAt.substring(5)}
+                    {formatDateShort(kb.created_at)}
                   </span>
                 </div>
               </div>

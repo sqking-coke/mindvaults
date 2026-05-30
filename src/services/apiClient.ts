@@ -73,6 +73,26 @@ export async function uploadFiles<T>(path: string, files: File[], signal?: Abort
   return handleResponse<T>(res);
 }
 
+export async function uploadVaultFiles<T>(
+  path: string,
+  files: File[],
+  source: string = "obsidian",
+  signal?: AbortSignal,
+): Promise<T> {
+  const form = new FormData();
+  files.forEach((f) => {
+    // Preserve webkitRelativePath as the file's filename in multipart payload
+    form.append("files", f, f.webkitRelativePath || f.name);
+  });
+  form.append("source", source);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: form,
+    signal,
+  });
+  return handleResponse<T>(res);
+}
+
 export type SSEChatEvent =
   | { type: "progress"; data: SSEProgressEvent }
   | { type: "token"; data: SSETokenEvent }

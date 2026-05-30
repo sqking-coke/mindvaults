@@ -22,7 +22,7 @@ async def _embed_ollama(text: str) -> list[float]:
     payload = {"model": settings.EMBEDDING_MODEL, "prompt": text}
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -54,7 +54,7 @@ async def _embed_openai(text: str) -> list[float]:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()

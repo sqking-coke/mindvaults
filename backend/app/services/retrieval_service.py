@@ -1,6 +1,7 @@
 from loguru import logger
-from sqlalchemy import select, func
+from sqlalchemy import select, func, type_coerce
 from sqlalchemy.ext.asyncio import AsyncSession
+from pgvector.sqlalchemy import Vector
 
 from app.config import settings
 from app.core.redis import get_redis
@@ -12,9 +13,15 @@ from app.services.cache_service import CacheService
 
 
 async def get_config(db: AsyncSession) -> KbConfig:
-    row = (await db.execute(select(KbConfig).where(KbConfig.id == 1))).scalar_one_or_none()
+    """获取默认 KB (id=1) 的配置。向后兼容旧调用方。"""
+    return await get_config_by_kb(db, kb_id=1)
+
+
+async def get_config_by_kb(db: AsyncSession, kb_id: int) -> KbConfig:
+    """获取指定 KB 的配置；不存在则创建默认行。"""
+    row = (await db.execute(select(KbConfig).where(KbConfig.kb_id == kb_id))).scalar_one_or_none()
     if row is None:
-        row = KbConfig()
+        row = KbConfig(kb_id=kb_id)
         db.add(row)
         await db.flush()
     return row
@@ -25,9 +32,11 @@ async def _pgvector_search(
     query_embedding: list[float],
     k: int,
     thresh: float,
+    kb_id: int,
 ) -> list[RefChunk]:
-    """pgvector HNSW 语义检索，返回相似切片列表（按相似度降序）。"""
-    similarity_expr = 1.0 - func.cosine_distance(KbChunk.embedding, query_embedding)
+    """pgvector HNSW 语义检索（限定 KB），返回相似切片列表（按相似度降序）。"""
+    vec = type_coerce(query_embedding, Vector(1024))
+    similarity_expr = 1.0 - func.cosine_distance(KbChunk.embedding, vec)
 
     stmt = (
         select(
@@ -41,7 +50,8 @@ async def _pgvector_search(
         .where(
             KbDocument.deleted_at.is_(None),
             KbDocument.status == DOC_STATUS_COMPLETED,
-            func.cosine_distance(KbChunk.embedding, query_embedding) <= 1.0 - thresh,
+            KbDocument.kb_id == kb_id,
+            func.cosine_distance(KbChunk.embedding, vec) <= 1.0 - thresh,
         )
         .order_by(similarity_expr.desc())
         .limit(k)
@@ -65,11 +75,13 @@ async def _pgvector_search(
 async def retrieve_chunks(
     db: AsyncSession,
     query_embedding: list[float],
+    kb_id: int | None = None,
     top_k: int | None = None,
     threshold: float | None = None,
 ) -> list[RefChunk]:
-    """语义检索（Redis 缓存 + pgvector 降级）。先查缓存，未命中时走 pgvector。"""
-    cfg = await get_config(db)
+    """语义检索（Redis 缓存 + pgvector 降级）。限定 KB 范围。"""
+    kb = kb_id or 1
+    cfg = await get_config_by_kb(db, kb)
     k = top_k if top_k is not None else cfg.top_k
     thresh = threshold if threshold is not None else cfg.similarity_threshold
 
@@ -87,7 +99,7 @@ async def retrieve_chunks(
             logger.opt(exception=True).warning("Redis 不可用，降级至 pgvector")
 
     # —— 缓存未命中，走 pgvector ——
-    chunks = await _pgvector_search(db, query_embedding, k, thresh)
+    chunks = await _pgvector_search(db, query_embedding, k, thresh, kb)
 
     # —— 回写缓存 ——
     if cache is not None and chunks:

@@ -14,10 +14,11 @@ interface ChatInputAreaProps {
 }
 
 export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
-  const { 
-    activeConversationId, 
-    sendMessage, 
-    isGenerating 
+  const {
+    activeConversationId,
+    sendMessage,
+    isGenerating,
+    systemConfig
   } = usemindvaults();
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -90,7 +91,7 @@ export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
 
         {/* Bottom model diagnostics */}
         <p className="text-[10px] text-slate-400 text-center select-none flex items-center justify-center gap-1 leading-normal">
-          <span>模型内核: <b>qwen-2.5-7b-instruct</b> (本地运行)</span>
+          <span>模型内核: <b>{systemConfig?.llm_model || "未配置"}</b> ({systemConfig?.llm_provider === "ollama" ? "本地运行" : "云端 API"})</span>
           <span>•</span>
           <span>检索模式: <b>HNSW 向量粗排 + BCE Reranker 重排精选</b></span>
         </p>

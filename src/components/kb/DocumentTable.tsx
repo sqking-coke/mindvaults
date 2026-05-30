@@ -102,13 +102,43 @@ export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
             <tbody className="divide-y divide-slate-100">
               {activeKbDocs.map((doc) => {
                 const isExpanded = expandedDocId === doc.id;
+                
+                // Parse Obsidian metadata if available
+                let isObsidian = false;
+                let obsidianTitle = "";
+                if (doc.description) {
+                  try {
+                    const parsed = JSON.parse(doc.description);
+                    if (parsed && parsed.source === "obsidian") {
+                      isObsidian = true;
+                      obsidianTitle = parsed.frontmatter?.title || "";
+                    }
+                  } catch (e) {
+                    // Ignore parsing error
+                  }
+                }
+
                 return (
                   <React.Fragment key={doc.id}>
                     <tr className={`hover:bg-slate-50/50 transition-colors ${isExpanded ? "bg-slate-50/30 font-medium" : ""}`}>
-                      <td className="px-6 py-4 font-medium text-slate-800 max-w-[200px] truncate">
+                      <td className="px-6 py-4 font-medium text-slate-800 max-w-[240px] truncate">
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
-                          <span className="truncate" title={doc.name}>{doc.name}</span>
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="truncate" title={doc.name}>{doc.name}</span>
+                              {isObsidian && (
+                                <span className="shrink-0 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-150 px-1 py-0.2 rounded" title="Obsidian Vault 导入">
+                                  Obsidian
+                                </span>
+                              )}
+                            </div>
+                            {isObsidian && obsidianTitle && (
+                              <span className="text-[10px] text-slate-400 truncate mt-0.5" title={obsidianTitle}>
+                                {obsidianTitle}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-mono select-all">{doc.size}</td>
@@ -191,8 +221,8 @@ export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
                             </>
                           )}
 
-                          {/* Expanded view trigger for chunks */}
-                          {opsMode && (doc.status === "success" || doc.status === "disabled") && (
+                          {/* Expanded view trigger for chunks — available in both normal and ops modes */}
+                          {(doc.status === "success" || doc.status === "disabled") && (
                             <button
                               onClick={() => handleToggleExpand(doc.id)}
                               className={`p-1.5 rounded-lg border text-xs font-semibold transition-all focus:outline-none ${
@@ -235,8 +265,8 @@ export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
                       </td>
                     </tr>
 
-                    {/* Collapsible Section for ChunkList */}
-                    {opsMode && isExpanded && (
+                    {/* Collapsible Section for ChunkList — available in both normal and ops modes */}
+                    {isExpanded && (
                       <tr>
                         <td colSpan={6} className="px-6 py-4 bg-slate-50/20 border-t border-b border-slate-150">
                           <ChunkList 

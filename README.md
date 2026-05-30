@@ -26,6 +26,7 @@
 
 > mindvaults 是一款支持**本地私有化 + 云端 API 双模式**的 RAG 知识库问答系统。提供两套部署方案：轻量模式（4 容器，~1.5GB，LLM/Embedding 走云端 API）和全栈模式（6 容器，Ollama 本地推理，数据完全不出网）。基于 FastAPI + Next.js 14 + PostgreSQL/pgvector + Redis 构建。
 
+
 ## 🚀 核心特性
 
 ### 1. 💬 RAG 智能问答
@@ -41,6 +42,10 @@
 - **文档生命周期管理**：文档列表分页查看、软删除、启用/禁用、增量重索引
 - **切片管理**：按文档查看切片列表，支持编辑切片内容（自动重向量化）和删除切片
 - **检索沙盒**：分屏检索测试，输入查询词 → 返回 Top-K 匹配片段 + 相似度评分
+- **双模 Obsidian Vault 智能导入**：支持两种导入模式，完美融合极速前端传输与物理扫描：
+  - **文件夹拖拽上传（默认/推荐）**：支持将本地文件夹直接拖入浏览器或点击选择。前端基于 HTML5 Directory API 递归解析文件夹，**智能过滤隐藏目录（如 `.obsidian`、`.git`）与大附件**，将数 GB 的 Vault 深度压缩至几百 KB 到数 MB，流式极速上传。保留 `webkitRelativePath` 供后端进行层级深度还原。
+  - **绝对路径本地扫描（极客模式）**：支持在弹窗中直接输入宿主绝对路径，供后端直接扫盘。适合单机环境或已进行 Docker 卷映射（Volume Mapping）的玩家。
+  - 均支持提取 YAML frontmatter 属性（title/tags/date/aliases）写入文档描述，且规范化 `[[wikilink]]` 双链。
 
 ### 3. 🛠️ 知识库运维（P2）
 - **运维管理面板** (`/kb/ops`)：文档启用/禁用切换、重索引、切片查看/编辑/删除
@@ -171,11 +176,17 @@ graph TD
 |------|------|------|
 | GET | `/api/v1/health` | 服务健康检查（无需鉴权） |
 
+### Vault 导入与拖拽上传
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/kb/vaults/import` | 扫描本地宿主目录导入 Obsidian Vault（接收 JSON `{"path":"...", "source":"obsidian"}`） |
+| POST | `/api/v1/kb/vaults/upload` | 批量上传本地文件夹导入 Obsidian Vault（接收 Multipart Form-Data，包含 `files` 列表与 `source`） |
+
 ---
 
 ## 🐳 部署指南
 
-mindvaults 提供**轻量（云端 API）** 和**本地全栈（Ollama）** 双模式部署，并支持开发环境手动构建。
+mindvaults 提供**轻量（云端 API）** 和 **本地全栈（Ollama）** 双模式部署，并支持开发环境手动构建。
 
 > 📖 完整部署文档请参阅 **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**，涵盖：
 > - Docker Compose 一键部署（轻量 / 全栈）
@@ -297,9 +308,9 @@ mindvaults/
 
 ## ✨ 设计亮点
 
-- **纯本地闭环**：所有文档、向量数据、问答记录全部本地存储，零外网上传，保障数据隐私安全
-- **先文档后编码**：每个阶段（P0/P1/P2）遵循 规划→拆分→分配→文档→确认→实施 工作流，规划文档 7+ 份
-- **SSE 全链路透传**：意图识别→检索→匹配→生成 四阶段 progress 事件，透明展示 RAG 底层处理链路
-- **Redis 降级策略**：缓存不可用时自动降级至直接查询 pgvector，不影响核心问答功能
-- **零 schema migration 扩展**：P2 新增文档禁用/统计/缓存等 8 项能力，零新表、零改列
-- **多 Agent 协同开发**：Claude (后端) + Gemini (前端) 并行推进，Multica 统筹协调，3-4 天完成完整阶段交付
+- **双模式灵活部署**：轻量模式（4 容器，~1.5GB，走云端 API）和全栈模式（6 容器，Ollama 本地推理），从树莓派到 GPU 服务器都能跑
+- **你的数据，永远归你所有**：文档、向量、问答记录全部本地存储，零外网上传。即使断网，知识库依然完整可用
+- **LLM / Embedding 可拔插架构**：Provider 独立配置，Ollama · DeepSeek · OpenAI · 通义千问 自由组合，API Key 一键切换，不锁定任何厂商
+- **SSE 全链路透明**：意图识别 → 向量检索 → 片段匹配 → 答案生成，四阶段 progress 事件实时可见，RAG 不再是黑盒
+- **韧性降级设计**：Redis 缓存不可用时自动回退 pgvector 直查；Ollama 不可用时自动切换云端 API，核心问答链路永不断线
+- **引用溯源闭环**：每条答案精确标注原文片段 + 文档来源 + 相似度评分 + PDF 页码，点击即定位，知识可审计、可复核

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { formatDateShort } from "@/utils/date";
 import { 
   Trophy, 
   Clock, 
@@ -27,19 +28,7 @@ export default function FrequentQuestions({ questions, isLoading }: FrequentQues
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr);
-      // Format as "05-29 14:32"
-      const m = String(date.getMonth() + 1).padStart(2, "0");
-      const d = String(date.getDate()).padStart(2, "0");
-      const h = String(date.getHours()).padStart(2, "0");
-      const min = String(date.getMinutes()).padStart(2, "0");
-      return `${m}-${d} ${h}:${min}`;
-    } catch {
-      return dateStr;
-    }
-  };
+
 
   if (isLoading) {
     return (
@@ -153,7 +142,7 @@ export default function FrequentQuestions({ questions, isLoading }: FrequentQues
                     <td className="py-3.5 px-4 text-slate-500 font-medium font-mono">
                       <div className="flex items-center gap-1.5">
                         <Clock className="h-3 w-3 text-slate-400" />
-                        {formatDate(item.last_asked_at)}
+                        {formatDateShort(item.last_asked_at)}
                       </div>
                     </td>
                     <td className="py-3.5 px-5">

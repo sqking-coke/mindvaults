@@ -31,6 +31,7 @@ class DocumentListItem(BaseModel):
     doc_name: str
     status: int
     chunk_count: int
+    kb_id: int
 
     model_config = {"from_attributes": True}
 

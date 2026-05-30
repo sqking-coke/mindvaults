@@ -74,6 +74,19 @@ def _build_context(chunks: list[RefChunk]) -> str:
     return "\n\n".join(parts)
 
 
+async def _push_thinking(session_id: str, step: dict) -> None:
+    """将推理步骤写入 Redis LIST（非阻塞，Redis 不可用时静默跳过）。"""
+    try:
+        from app.core.redis import get_redis
+        from app.config import settings
+        redis = await get_redis()
+        key = f"mv:thinking:{session_id}"
+        await redis.lpush(key, json.dumps(step))
+        await redis.expire(key, settings.THINKING_TTL_SECONDS)
+    except Exception:
+        pass
+
+
 async def chat_stream(
     db: AsyncSession, req: ChatRequest
 ) -> AsyncGenerator[tuple[str, str], None]:
@@ -87,20 +100,26 @@ async def chat_stream(
         )
     ).scalar_one_or_none()
 
+    # 确定 kb_id：请求 > 会话 > 默认 1
+    kb_id = req.kb_id or (session.kb_id if session else 1)
+
     if session is None:
         session = KbSession(
             session_id=req.session_id,
+            kb_id=kb_id,
             title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
         )
         db.add(session)
         await db.flush()
 
+    await _push_thinking(req.session_id, {"phase": "intent", "message": "正在理解问题...", "intent": _classify_intent(req.question), "elapsed_ms": 0})
     yield (
         "progress",
         json.dumps({"phase": "intent", "message": "正在理解问题...", "intent": _classify_intent(req.question), "elapsed_ms": 0}),
     )
 
     # — 2. Embedding —
+    await _push_thinking(req.session_id, {"phase": "retrieval", "message": "正在向量化问题...", "elapsed_ms": int((time.time() - t_start) * 1000)})
     yield (
         "progress",
         json.dumps(
@@ -115,6 +134,7 @@ async def chat_stream(
         return
 
     # — 3. 检索 —
+    await _push_thinking(req.session_id, {"phase": "retrieval", "message": "正在语义检索相关文档...", "elapsed_ms": int((time.time() - t_start) * 1000)})
     yield (
         "progress",
         json.dumps(
@@ -122,7 +142,7 @@ async def chat_stream(
         ),
     )
 
-    chunks = await retrieve_chunks(db, query_embedding)
+    chunks = await retrieve_chunks(db, query_embedding, kb_id=kb_id)
 
     if not chunks:
         yield (
@@ -131,6 +151,12 @@ async def chat_stream(
         )
         return
 
+    await _push_thinking(req.session_id, {
+        "phase": "matching",
+        "message": f"已匹配 {len(chunks)} 条相关片段",
+        "elapsed_ms": int((time.time() - t_start) * 1000),
+        "similarity": round(chunks[0].similarity, 4),
+    })
     yield (
         "progress",
         json.dumps(
@@ -144,6 +170,7 @@ async def chat_stream(
     )
 
     # — 4. LLM 生成 —
+    await _push_thinking(req.session_id, {"phase": "generating", "message": "正在生成回答...", "elapsed_ms": int((time.time() - t_start) * 1000)})
     yield (
         "progress",
         json.dumps(
@@ -267,3 +294,31 @@ async def list_sessions(db: AsyncSession) -> SessionsListResponse:
             for row in rows
         ]
     )
+
+
+async def delete_session(db: AsyncSession, session_id: str) -> None:
+    """删除会话及其所有问答记录，同时清理 Redis 推理缓存。"""
+    from sqlalchemy import delete
+
+    session = (
+        await db.execute(
+            select(KbSession).where(KbSession.session_id == session_id)
+        )
+    ).scalar_one_or_none()
+
+    if session is None:
+        raise SessionNotFoundError(f"会话不存在: {session_id}")
+
+    await db.execute(
+        delete(KbQaRecord).where(KbQaRecord.session_id == session.id)
+    )
+    await db.delete(session)
+    await db.commit()
+
+    # 清理 Redis 推理缓存
+    try:
+        from app.core.redis import get_redis
+        redis = await get_redis()
+        await redis.delete(f"mv:thinking:{session_id}")
+    except Exception:
+        pass

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { formatDateShort } from "@/utils/date";
 import { 
   HelpCircle, 
   Calendar, 
@@ -27,21 +28,6 @@ export default function UnansweredList({
   setPage,
   pageSize 
 }: UnansweredListProps) {
-
-  const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr);
-      // Format as "2026-05-29 10:15"
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, "0");
-      const d = String(date.getDate()).padStart(2, "0");
-      const h = String(date.getHours()).padStart(2, "0");
-      const min = String(date.getMinutes()).padStart(2, "0");
-      return `${y}-${m}-${d} ${h}:${min}`;
-    } catch {
-      return dateStr;
-    }
-  };
 
   const items = unansweredData?.items ?? [];
   const total = unansweredData?.total ?? 0;
@@ -102,7 +88,7 @@ export default function UnansweredList({
                   </p>
                   <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
                     <Calendar className="h-3 w-3" />
-                    <span>提问时间：{formatDate(item.created_at)}</span>
+                    <span>提问时间：{formatDateShort(item.created_at)}</span>
                     <span className="text-slate-200">•</span>
                     <span>会话ID：{item.session_id}</span>
                   </div>

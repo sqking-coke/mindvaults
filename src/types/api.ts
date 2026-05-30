@@ -69,6 +69,14 @@ export type KbConfigUpdateRequest = Partial<KbConfig>;
 
 // ==================== 前端领域类型（保留现有命名，对齐后端字段） ====================
 
+/** 推理步骤（来自 SSE progress 事件） */
+export interface ThinkingStep {
+  text: string;
+  phase: string;
+  elapsed_ms?: number;
+  similarity?: number;
+}
+
 /** 前端 Message（与 ChatMessage 对齐，citations 用前端 Citation 类型） */
 export interface Message {
   id: string;
@@ -76,6 +84,7 @@ export interface Message {
   content: string;
   timestamp: string;
   citations?: Citation[];
+  thinkingSteps?: ThinkingStep[];
 }
 
 /** 前端 Conversation（与 Session 对齐） */
@@ -86,14 +95,19 @@ export interface Conversation {
   createdAt: string;
 }
 
-/** 前端知识库 */
+/** 前端知识库（对齐后端 API 返回的 snake_case 字段） */
 export interface KnowledgeBase {
-  id: string;
+  id: number;
   name: string;
   description: string;
-  docCount: number;
-  charCount: number;
-  createdAt: string;
+  doc_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KbCreateRequest {
+  name: string;
+  description?: string;
 }
 
 /** 前端文档记录（与 KbDocument 对齐） */
@@ -107,6 +121,7 @@ export interface DocumentRecord {
   progress: number; // 0~100
   uploadedAt: string;
   type?: string;
+  description?: string;
 }
 
 // ==================== API 统一响应格式 ====================
@@ -303,4 +318,59 @@ export function refChunkToCitation(chunk: RefChunk, index: number): Citation {
     score: chunk.similarity,
     page: chunk.page,
   };
+}
+
+// ==================== 系统配置 API 契约 ====================
+
+export interface SystemConfig {
+  chunk_size: number;
+  chunk_overlap: number;
+  top_k: number;
+  similarity_threshold: number;
+  embedding_dim: number;
+  llm_provider: string;
+  llm_base_url: string;
+  llm_model: string;
+  llm_api_key: string;
+  llm_temperature: number;
+  system_prompt: string;
+}
+
+export interface SystemConfigRequest {
+  chunk_size?: number;
+  chunk_overlap?: number;
+  top_k?: number;
+  similarity_threshold?: number;
+  llm_provider?: string;
+  llm_base_url?: string;
+  llm_model?: string;
+  llm_api_key?: string;
+  llm_temperature?: number;
+  system_prompt?: string;
+}
+
+// ==================== Obsidian Vault 导入 API 契约 ====================
+
+export interface VaultImportRequest {
+  path: string;
+  source?: string;
+}
+
+export interface VaultImportError {
+  file: string;
+  reason: string;
+}
+
+export interface VaultImportDocument {
+  id: number;
+  doc_name: string;
+  status: number;
+}
+
+export interface VaultImportResponse {
+  total_found: number;
+  imported: number;
+  failed: number;
+  errors: VaultImportError[];
+  documents: VaultImportDocument[];
 }

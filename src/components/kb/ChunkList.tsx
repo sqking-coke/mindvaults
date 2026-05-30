@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { fetchDocChunks, updateChunk, deleteChunk, type ChunkItem } from "@/services/ragService";
+import { formatDateShort } from "@/utils/date";
 import { Edit3, Trash2, ChevronLeft, ChevronRight, Hash, Eye, AlertTriangle } from "lucide-react";
 import ChunkEditor from "./ChunkEditor";
 
@@ -132,7 +133,7 @@ export default function ChunkList({ docId, docName, onCountChanged }: ChunkListP
                         {chunk.page !== null ? `${chunk.page} 页` : "—"}
                       </td>
                       <td className="px-4 py-2.5 text-center font-mono text-slate-400">
-                        {chunk.created_at?.replace("T", " ").substring(5, 16) || "—"}
+                        {formatDateShort(chunk.created_at)}
                       </td>
                       <td className="px-4 py-2.5 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">

@@ -5,6 +5,9 @@ from app.api.v1.chat import router as chat_router
 from app.api.v1.retrieval import router as retrieval_router
 from app.api.v1.stats import router as stats_router
 from app.api.v1.chunks import router as chunks_router
+from app.api.v1.config import router as config_router
+from app.api.v1.vault import router as vault_router
+from app.api.v1.knowledge_bases import router as kb_router
 from app.api.deps import verify_api_key
 
 api_router = APIRouter(prefix="/api/v1", dependencies=[Depends(verify_api_key)])
@@ -13,6 +16,9 @@ api_router.include_router(chat_router, prefix="/kb")
 api_router.include_router(retrieval_router, prefix="/kb")
 api_router.include_router(stats_router, prefix="/kb")
 api_router.include_router(chunks_router, prefix="/kb")
+api_router.include_router(config_router, prefix="/kb")
+api_router.include_router(vault_router, prefix="/kb")
+api_router.include_router(kb_router, prefix="/kb")
 
 # Health check — no auth required
 public_router = APIRouter(prefix="/api/v1")

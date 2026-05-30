@@ -6,7 +6,7 @@ from app.api.deps import get_db
 from app.core.middleware import limiter
 from app.schemas.chat import ChatRequest
 from app.schemas.common import success_response
-from app.services.chat_service import chat_stream, get_chat_history, list_sessions
+from app.services.chat_service import chat_stream, get_chat_history, list_sessions, delete_session
 
 router = APIRouter(tags=["chat"])
 
@@ -52,3 +52,25 @@ async def chat_sessions(db: AsyncSession = Depends(get_db)):
     """获取所有会话列表。"""
     result = await list_sessions(db)
     return success_response(result.model_dump())
+
+
+@router.delete("/chat/sessions/{session_id}")
+async def chat_session_delete(session_id: str, db: AsyncSession = Depends(get_db)):
+    """删除会话及其所有问答记录。"""
+    await delete_session(db, session_id)
+    return success_response({"deleted": session_id})
+
+
+@router.get("/chat/thinking/{session_id}")
+async def get_thinking(session_id: str):
+    """获取指定会话的推理过程（从 Redis 读取）。"""
+    try:
+        from app.core.redis import get_redis
+        redis = await get_redis()
+        key = f"mv:thinking:{session_id}"
+        items = await redis.lrange(key, 0, -1)
+        import json
+        steps = [json.loads(item) for item in reversed(items)]  # LPUSH 是倒序的
+        return success_response({"session_id": session_id, "steps": steps})
+    except Exception:
+        return success_response({"session_id": session_id, "steps": []})

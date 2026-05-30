@@ -4,9 +4,13 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type {
   Citation,
   Message,
+  ThinkingStep,
   Conversation,
   KnowledgeBase,
   DocumentRecord,
+  SystemConfig,
+  SystemConfigRequest,
+  VaultImportResponse,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
 import {
@@ -20,10 +24,20 @@ import {
   fetchChatHistory,
   historyRecordToMessage,
   kbDocumentToDocRecord,
+  fetchSystemConfig,
+  updateSystemConfig as apiUpdateSystemConfig,
+  fetchOllamaModels,
+  importVault as apiImportVault,
+  uploadVault as apiUploadVault,
+  deleteSession as apiDeleteSession,
+  fetchKnowledgeBases,
+  createKnowledgeBase,
+  deleteKnowledgeBase as apiDeleteKnowledgeBase,
+  fetchThinkingSteps,
 } from "@/services/ragService";
 import { streamChat } from "@/services/apiClient";
 
-export type { Citation, Message, Conversation, KnowledgeBase, DocumentRecord };
+export type { Citation, Message, Conversation, KnowledgeBase, DocumentRecord, SystemConfig, SystemConfigRequest };
 
 interface mindvaultsContextType {
   activeTab: "chat" | "kb";
@@ -49,6 +63,15 @@ interface mindvaultsContextType {
   reindexDocument: (docId: string) => Promise<void>;
   selectedCitation: Citation | null;
   setSelectedCitation: (citation: Citation | null) => void;
+  importVault: (path: string, source?: string) => Promise<VaultImportResponse>;
+  uploadVault: (files: File[], source?: string) => Promise<VaultImportResponse>;
+  
+  // --- Global Dynamic System/Model configuration ---
+  systemConfig: SystemConfig | null;
+  ollamaModels: string[];
+  loadSystemConfig: () => Promise<void>;
+  updateSystemConfig: (config: SystemConfigRequest) => Promise<boolean>;
+  loadOllamaModels: () => Promise<void>;
 }
 
 const mindvaultsContext = createContext<mindvaultsContextType | undefined>(undefined);
@@ -71,18 +94,66 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [activeKbId, setActiveKbId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
 
+  // --- Dynamic LLM and System configuration ---
+  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+
+  const loadSystemConfig = useCallback(async () => {
+    try {
+      const cfg = await fetchSystemConfig();
+      setSystemConfig(cfg);
+    } catch (err) {
+      console.error("Failed to load system config:", err);
+    }
+  }, []);
+
+  const updateSystemConfigHandler = useCallback(async (config: SystemConfigRequest) => {
+    try {
+      const updated = await apiUpdateSystemConfig(config);
+      setSystemConfig(updated);
+      return true;
+    } catch (err) {
+      console.error("Failed to update system config:", err);
+      return false;
+    }
+  }, []);
+
+  const loadOllamaModels = useCallback(async () => {
+    try {
+      const models = await fetchOllamaModels();
+      setOllamaModels(models);
+    } catch (err) {
+      console.error("Failed to load Ollama models:", err);
+    }
+  }, []);
+
   // ---- initial load from backend ----
   useEffect(() => {
-    const defaultKb = getDefaultKnowledgeBase();
-    setKnowledgeBases([defaultKb]);
-    setActiveKbId(defaultKb.id);
+    loadSystemConfig();
+    loadOllamaModels();
 
     let cancelled = false;
 
     (async () => {
       try {
+        // 从后端获取真实 KB 列表
+        const kbs = await fetchKnowledgeBases();
+        if (cancelled) return;
+
+        if (kbs.length > 0) {
+          setKnowledgeBases(kbs);
+          setActiveKbId(String(kbs[0].id));
+        } else {
+          // 后端没有 KB 时用默认兜底
+          const defaultKb = getDefaultKnowledgeBase();
+          setKnowledgeBases([defaultKb]);
+          setActiveKbId(String(defaultKb.id));
+        }
+
+        // 加载默认 KB 的文档和会话
+        const kbId = kbs.length > 0 ? kbs[0].id : 1;
         const [docResult, sessions] = await Promise.all([
-          fetchDocuments(1, 50),
+          fetchDocuments(1, 50, kbId),
           fetchSessions(),
         ]);
         if (cancelled) return;
@@ -97,32 +168,25 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }));
         if (convs.length > 0) {
           setConversations(convs);
-          setActiveConversationId(convs[0].id);
-
-          // load history for the first session
-          try {
-            const hist = await fetchChatHistory(convs[0].id);
-            if (!cancelled) {
-              const msgs: Message[] = [];
-              hist.items.forEach((r, i) => {
-                const { user, assistant } = historyRecordToMessage(r, i);
-                msgs.push(user, assistant);
-              });
-              setConversations((prev) =>
-                prev.map((c) => (c.id === convs[0].id ? { ...c, messages: msgs } : c)),
-              );
-            }
-          } catch {
-            // session history load failed — session may be empty
-          }
+          // 不自动选中历史对话，进入 /chat 默认展示新建对话欢迎页
         }
       } catch {
-        // backend unavailable — start with empty state
+        // backend unavailable — 用默认 KB 兜底
+        const defaultKb = getDefaultKnowledgeBase();
+        setKnowledgeBases([defaultKb]);
+        setActiveKbId(String(defaultKb.id));
       }
     })();
 
     return () => { cancelled = true; };
   }, []);
+
+  // 切换 KB 时重新加载文档列表
+  useEffect(() => {
+    const kbId = Number(activeKbId);
+    if (!kbId || kbId <= 0) return;
+    fetchDocuments(1, 50, kbId).then((r) => setDocuments(r.docs)).catch(() => {});
+  }, [activeKbId]);
 
   // load chat history when switching conversations
   useEffect(() => {
@@ -133,11 +197,23 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let cancelled = false;
     (async () => {
       try {
-        const hist = await fetchChatHistory(activeConversationId);
+        const [hist, thinkingSteps] = await Promise.all([
+          fetchChatHistory(activeConversationId),
+          fetchThinkingSteps(activeConversationId).catch(() => []),
+        ]);
         if (cancelled) return;
         const msgs: Message[] = [];
         hist.items.forEach((r, i) => {
           const { user, assistant } = historyRecordToMessage(r, i);
+          // 将 Redis 中的推理步骤附加到最后一条 assistant 消息
+          if (i === hist.items.length - 1 && thinkingSteps.length > 0) {
+            assistant.thinkingSteps = thinkingSteps.map((s) => ({
+              text: s.message,
+              phase: s.phase,
+              elapsed_ms: s.elapsed_ms,
+              similarity: s.similarity,
+            }));
+          }
           msgs.push(user, assistant);
         });
         setConversations((prev) =>
@@ -172,6 +248,11 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
         return remaining;
       });
+
+      // 同步删除后端数据
+      apiDeleteSession(id).catch((err) =>
+        console.error("Failed to delete session on server:", err),
+      );
     },
     [activeConversationId],
   );
@@ -184,7 +265,21 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const sendMessage = useCallback(
     (content: string) => {
-      if (!activeConversationId || !content.trim() || isGenerating) return;
+      if (!content.trim() || isGenerating) return;
+
+      // Auto-create conversation if none is active (first-time user)
+      let sessionId = activeConversationId;
+      if (!sessionId) {
+        sessionId = generateUUID();
+        const newConv: Conversation = {
+          id: sessionId,
+          title: content.substring(0, 15) + (content.length > 15 ? "..." : ""),
+          createdAt: new Date().toISOString(),
+          messages: [],
+        };
+        setConversations((prev) => [newConv, ...prev]);
+        setActiveConversationId(sessionId);
+      }
 
       const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const userMsg: Message = {
@@ -196,7 +291,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       setConversations((prev) =>
         prev.map((c) => {
-          if (c.id === activeConversationId) {
+          if (c.id === sessionId) {
             const title =
               c.title === "新建对话"
                 ? content.substring(0, 15) + (content.length > 15 ? "..." : "")
@@ -219,7 +314,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === activeConversationId ? { ...c, messages: [...c.messages, assistantMsg] } : c,
+          c.id === sessionId ? { ...c, messages: [...c.messages, assistantMsg] } : c,
         ),
       );
 
@@ -229,13 +324,34 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try {
           for await (const event of streamChat(
             "/api/v1/kb/chat",
-            { question: content, session_id: activeConversationId },
+            { question: content, session_id: sessionId, kb_id: Number(activeKbId || 1) },
             abortController.signal,
           )) {
-            if (event.type === "token") {
+            if (event.type === "progress") {
+              const step: ThinkingStep = {
+                text: event.data.message,
+                phase: event.data.phase,
+                elapsed_ms: event.data.elapsed_ms,
+                similarity: event.data.similarity,
+              };
               setConversations((prev) =>
                 prev.map((c) =>
-                  c.id === activeConversationId
+                  c.id === sessionId
+                    ? {
+                        ...c,
+                        messages: c.messages.map((m) =>
+                          m.id === assistantId
+                            ? { ...m, thinkingSteps: [...(m.thinkingSteps || []), step] }
+                            : m,
+                        ),
+                      }
+                    : c,
+                ),
+              );
+            } else if (event.type === "token") {
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === sessionId
                     ? {
                         ...c,
                         messages: c.messages.map((m) =>
@@ -253,7 +369,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               );
               setConversations((prev) =>
                 prev.map((c) =>
-                  c.id === activeConversationId
+                  c.id === sessionId
                     ? {
                         ...c,
                         messages: c.messages.map((m) =>
@@ -264,14 +380,26 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 ),
               );
             } else if (event.type === "error") {
+              const errorCode = (event.data as { code?: number }).code;
+              const errorMessage = (event.data as { message?: string }).message || "未知错误";
+
+              // 友好提示：根据错误码显示引导文案而非冷冰冰的错误
+              let displayContent: string;
+              if (errorCode === 4001) {
+                displayContent =
+                  "📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识库中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。";
+              } else {
+                displayContent = `⚠️ ${errorMessage}`;
+              }
+
               setConversations((prev) =>
                 prev.map((c) =>
-                  c.id === activeConversationId
+                  c.id === sessionId
                     ? {
                         ...c,
                         messages: c.messages.map((m) =>
                           m.id === assistantId
-                            ? { ...m, content: `[错误] ${event.data.message}` }
+                            ? { ...m, content: displayContent }
                             : m,
                         ),
                       }
@@ -284,12 +412,12 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const msg = err instanceof Error ? err.message : "未知错误";
           setConversations((prev) =>
             prev.map((c) =>
-              c.id === activeConversationId
+              c.id === sessionId
                 ? {
                     ...c,
                     messages: c.messages.map((m) =>
                       m.id === assistantId
-                        ? { ...m, content: `[请求失败] ${msg}` }
+                        ? { ...m, content: `⚠️ 请求发送失败，请检查后端服务是否正常运行。\n\n> ${msg}` }
                         : m,
                     ),
                   }
@@ -301,31 +429,34 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       })();
     },
-    [activeConversationId, isGenerating],
+    [activeConversationId, activeKbId, isGenerating],
   );
 
-  const addKnowledgeBase = useCallback((name: string, description: string) => {
-    const id = `kb-${Date.now()}`;
-    const newKb: KnowledgeBase = {
-      id,
-      name,
-      description: description.trim() || "未提供描述信息。",
-      docCount: 0,
-      charCount: 0,
-      createdAt: new Date().toISOString().replace("T", " ").substring(0, 16),
-    };
-    setKnowledgeBases((prev) => [...prev, newKb]);
-    setActiveKbId(id);
+  const addKnowledgeBase = useCallback(async (name: string, description: string) => {
+    const kb = await createKnowledgeBase({ name, description });
+    setKnowledgeBases((prev) => [...prev, kb]);
+    setActiveKbId(String(kb.id));
+    // 切换到新 KB 时清空文档列表
+    setDocuments([]);
   }, []);
 
   const deleteKnowledgeBase = useCallback(
-    (id: string) => {
-      if (id === "kb-default") return; // cannot delete default KB
-      setKnowledgeBases((prev) => prev.filter((kb) => kb.id !== id));
+    async (id: string) => {
+      if (id === "1") return; // 不能删除默认 KB
+      try {
+        await apiDeleteKnowledgeBase(Number(id));
+      } catch (err) {
+        console.error("Failed to delete KB on server:", err);
+      }
+      setKnowledgeBases((prev) => prev.filter((kb) => String(kb.id) !== id));
       setDocuments((prev) => prev.filter((doc) => doc.kbId !== id));
       if (activeKbId === id) {
-        const remaining = knowledgeBases.filter((kb) => kb.id !== id);
-        setActiveKbId(remaining.length > 0 ? remaining[0].id : null);
+        const remaining = knowledgeBases.filter((kb) => String(kb.id) !== id);
+        setActiveKbId(remaining.length > 0 ? String(remaining[0].id) : null);
+        // 切换 KB 时重新加载文档
+        if (remaining.length > 0) {
+          fetchDocuments(1, 50, remaining[0].id).then((r) => setDocuments(r.docs)).catch(() => {});
+        }
       }
     },
     [activeKbId, knowledgeBases],
@@ -350,7 +481,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }));
       setDocuments((prev) => [...tempDocs, ...prev]);
 
-      apiUploadDocuments(files)
+      apiUploadDocuments(files, Number(kbId))
         .then((result) => {
           // replace temp docs with real ones from the response
           const uploaded = result.documents.map((d) => kbDocumentToDocRecord({
@@ -379,11 +510,52 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       try {
         // refresh the full document list
-        fetchDocuments(1, 50).then((result) => {
+        const kbId = Number(activeKbId || 1);
+        fetchDocuments(1, 50, kbId).then((result) => {
           setDocuments(result.docs);
         });
       } catch {
         // refresh failed, keep optimistic state
+      }
+    },
+    [activeKbId],
+  );
+
+  const importVaultHandler = useCallback(
+    async (path: string, source: string = "obsidian") => {
+      try {
+        const response = await apiImportVault({ path, source });
+        try {
+          const kbId = Number(activeKbId || 1);
+          const result = await fetchDocuments(1, 50, kbId);
+          setDocuments(result.docs);
+        } catch (fetchErr) {
+          console.error("Failed to refresh documents list after vault import:", fetchErr);
+        }
+        return response;
+      } catch (err) {
+        console.error("Failed inside importVaultHandler:", err);
+        throw err;
+      }
+    },
+    [],
+  );
+
+  const uploadVaultHandler = useCallback(
+    async (files: File[], source: string = "obsidian") => {
+      try {
+        const response = await apiUploadVault(files, source);
+        try {
+          const kbId = Number(activeKbId || 1);
+          const result = await fetchDocuments(1, 50, kbId);
+          setDocuments(result.docs);
+        } catch (fetchErr) {
+          console.error("Failed to refresh documents list after vault upload:", fetchErr);
+        }
+        return response;
+      } catch (err) {
+        console.error("Failed inside uploadVaultHandler:", err);
+        throw err;
       }
     },
     [],
@@ -521,6 +693,15 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         reindexDocument: reindexDocumentHandler,
         selectedCitation,
         setSelectedCitation,
+        importVault: importVaultHandler,
+        uploadVault: uploadVaultHandler,
+        
+        // --- Dynamic System/Model configuration ---
+        systemConfig,
+        ollamaModels,
+        loadSystemConfig,
+        updateSystemConfig: updateSystemConfigHandler,
+        loadOllamaModels,
       }}
     >
       {children}

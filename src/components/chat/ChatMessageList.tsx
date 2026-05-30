@@ -2,16 +2,18 @@
 
 import React, { useRef, useEffect, useState } from "react";
 import { usemindvaults, Message, Citation } from "@/context/mindvaultsContext";
-import { 
-  Sparkles, 
-  ChevronRight, 
+import {
+  Sparkles,
+  ChevronRight,
   CheckCircle,
   HelpCircle,
   Clock,
   User,
   Bot,
-  Share2
+  Share2,
+  Brain
 } from "lucide-react";
+import { fetchFrequentQuestions } from "@/services/ragService";
 import KnowledgeCard from "./KnowledgeCard";
 import WechatExport from "./WechatExport";
 
@@ -40,6 +42,16 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
     citations: Citation[];
   } | null>(null);
 
+  const [collapsedThinkings, setCollapsedThinkings] = useState<Set<string>>(new Set());
+
+  // 高频问题（Top-3 动态模板）
+  const [frequentQuestions, setFrequentQuestions] = useState<Array<{ question: string; count: number }>>([]);
+  useEffect(() => {
+    fetchFrequentQuestions(3)
+      .then((data) => setFrequentQuestions(data.items.map((q) => ({ question: q.question, count: q.count }))))
+      .catch(() => {});
+  }, []);
+
   // Find active conversation
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
@@ -49,33 +61,26 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConversation?.messages?.length, lastMessageContentLength]);
 
-  // Pre-configured prompt templates
+  // 固定兜底模板（按需补齐到 6 条）
+  const fixedTemplates = [
+    { label: "系统架构提问", text: "请问 mindvaults 的底层架构是怎么设计的？它是怎么保障私有数据的安全问答的？", icon: "⚡" },
+    { label: "弹性考勤查询", text: "我想知道公司的考勤和假期规定，核心工作时间段是什么时候？年假有几天？", icon: "📅" },
+    { label: "混合向量检索", text: "解释一下 mindvaults 的向量嵌入 Embedding 与重排 Reranking 检索过滤原理。", icon: "🔍" },
+    { label: "研发接口标准", text: "研发团队对于 RESTful API 接口的命名路径、异常响应体以及幂等性设计有什么具体规范要求？", icon: "💻" },
+    { label: "个人原子习惯", text: "在个人工作习惯重建中，如何具体运用原子习惯的四个核心环路，并结合卡片笔记来沉淀认知？", icon: "📝" },
+    { label: "文档导入指南", text: "如何批量导入 PDF、Word 和 Markdown 文档到知识库中？支持哪些文件格式？", icon: "📂" },
+  ];
+
+  // 混合模板：前 N 条动态（高频 Top1~Top3），不足 6 条用固定模板补齐
+  const dynamicCount = frequentQuestions.length;
+  const fillCount = Math.max(0, 6 - dynamicCount);
   const promptTemplates = [
-    {
-      label: "系统架构提问",
-      text: "请问 mindvaults 的底层架构是怎么设计的？它是怎么保障私有数据的安全问答的？",
-      icon: "⚡"
-    },
-    {
-      label: "弹性考勤查询",
-      text: "我想知道公司的考勤和假期规定，核心工作时间段是什么时候？年假有几天？",
-      icon: "📅"
-    },
-    {
-      label: "混合向量检索",
-      text: "解释一下 mindvaults 的向量嵌入 Embedding 与重排 Reranking 检索过滤原理。",
-      icon: "🔍"
-    },
-    {
-      label: "研发接口标准",
-      text: "研发团队对于 RESTful API 接口的命名路径、异常响应体以及幂等性设计有什么具体规范要求？",
-      icon: "💻"
-    },
-    {
-      label: "个人原子习惯",
-      text: "在个人工作习惯重建中，如何具体运用原子习惯的四个核心环路，并结合卡片笔记来沉淀认知？",
-      icon: "📝"
-    }
+    ...frequentQuestions.map((q, i) => ({
+      label: `🔥 高频提问 Top${i + 1}`,
+      text: q.question,
+      icon: "📈",
+    })),
+    ...fixedTemplates.slice(0, fillCount),
   ];
 
   // Helper: Parse message text to find citation numbers like [1] or [2] and render them as interactive tags
@@ -218,6 +223,58 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                           : "bg-white border border-slate-150 text-slate-800 rounded-tl-none leading-relaxed"
                       }`}
                     >
+                      {/* RAG 推理过程 Accordion */}
+                      {!isUser && msg.thinkingSteps && msg.thinkingSteps.length > 0 && (
+                        <div className="mb-3 bg-slate-50 rounded-lg border border-slate-100 overflow-hidden">
+                          <button
+                            onClick={() => {
+                              setCollapsedThinkings(prev => {
+                                const next = new Set(prev);
+                                if (next.has(msg.id)) next.delete(msg.id);
+                                else next.add(msg.id);
+                                return next;
+                              });
+                            }}
+                            className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-bold text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer select-none"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <Brain className="h-3.5 w-3.5" />
+                              RAG 推理过程
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {collapsedThinkings.has(msg.id) ? "展开 ▼" : "收起 ▲"}
+                            </span>
+                          </button>
+                          {!collapsedThinkings.has(msg.id) && (
+                            <div className="px-3 pb-2.5 flex flex-col gap-1">
+                              {msg.thinkingSteps.map((step, idx) => (
+                                <div key={idx} className="flex items-center gap-2 text-[10px] leading-relaxed"
+                                  style={{
+                                    color: step.phase === "intent" ? "#6366f1"
+                                         : step.phase === "retrieval" ? "#2563eb"
+                                         : step.phase === "matching" ? "#059669"
+                                         : "#7c3aed"
+                                  }}
+                                >
+                                  <div className="w-1.5 h-1.5 rounded-full shrink-0"
+                                    style={{
+                                      background: step.phase === "intent" ? "#6366f1"
+                                                : step.phase === "retrieval" ? "#3b82f6"
+                                                : step.phase === "matching" ? "#10b981"
+                                                : "#8b5cf6"
+                                    }}
+                                  />
+                                  <span>{step.text}</span>
+                                  {step.elapsed_ms != null && (
+                                    <span className="text-[9px] text-slate-400 ml-auto shrink-0">{step.elapsed_ms}ms</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Rich parsing and inline citation rendering */}
                       {isUser ? (
                         <div className="whitespace-pre-wrap select-text">{msg.content}</div>

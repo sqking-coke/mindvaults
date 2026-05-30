@@ -1,8 +1,8 @@
 import json
 from collections.abc import AsyncGenerator
+from typing import Optional
 
 from loguru import logger
-
 import httpx
 
 from app.config import settings
@@ -12,34 +12,52 @@ from app.core.exceptions import LLMCallFailedError
 async def generate_stream(
     system_prompt: str,
     user_prompt: str,
+    provider: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: Optional[float] = None,
 ) -> AsyncGenerator[str, None]:
-    """调用 LLM 流式生成，兼容 Ollama 原生 & OpenAI 兼容 API."""
-    if settings.LLM_PROVIDER == "openai":
-        async for token in _generate_openai(system_prompt, user_prompt):
+    """调用 LLM 流式生成，支持动态传入推理参数以实现热更新。"""
+    active_provider = provider if provider is not None else settings.LLM_PROVIDER
+    
+    if active_provider == "openai":
+        async for token in _generate_openai(
+            system_prompt, user_prompt, base_url, model, api_key, temperature
+        ):
             yield token
     else:
-        async for token in _generate_ollama(system_prompt, user_prompt):
+        async for token in _generate_ollama(
+            system_prompt, user_prompt, base_url, model, temperature
+        ):
             yield token
 
 
 async def _generate_ollama(
     system_prompt: str,
     user_prompt: str,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
 ) -> AsyncGenerator[str, None]:
     """Ollama 原生 Chat API (POST /api/chat, NDJSON stream)."""
-    url = f"{settings.LLM_BASE_URL.rstrip('/')}/api/chat"
+    active_base_url = base_url if base_url is not None else settings.LLM_BASE_URL
+    active_model = model if model is not None else settings.LLM_MODEL
+    active_temp = temperature if temperature is not None else 0.3
+
+    url = f"{active_base_url.rstrip('/')}/api/chat"
     payload = {
-        "model": settings.LLM_MODEL,
+        "model": active_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "stream": True,
-        "options": {"temperature": 0.3},
+        "options": {"temperature": active_temp},
     }
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
             async with client.stream("POST", url, json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -62,32 +80,36 @@ async def _generate_ollama(
 async def _generate_openai(
     system_prompt: str,
     user_prompt: str,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: Optional[float] = None,
 ) -> AsyncGenerator[str, None]:
-    """OpenAI 兼容 Chat Completions API (POST /chat/completions, SSE stream).
+    """OpenAI 兼容 Chat Completions API (POST /chat/completions, SSE stream)."""
+    active_base_url = base_url if base_url is not None else settings.LLM_BASE_URL
+    active_model = model if model is not None else settings.LLM_MODEL
+    active_api_key = api_key if api_key is not None else settings.LLM_API_KEY
+    active_temp = temperature if temperature is not None else 0.3
 
-    支持 OpenAI / DeepSeek / 通义千问 / 本地 vLLM 等兼容接口。
-    使用 LLM_BASE_URL（通常以 /v1 结尾）。
-    """
-    base = settings.LLM_BASE_URL.rstrip('/')
-    # 如果 URL 已经以 /v1 结尾则直接拼，否则加 /v1
+    base = active_base_url.rstrip('/')
     url = f"{base}/chat/completions" if base.endswith("/v1") else f"{base}/v1/chat/completions"
 
     headers = {"Content-Type": "application/json"}
-    if settings.LLM_API_KEY:
-        headers["Authorization"] = f"Bearer {settings.LLM_API_KEY}"
+    if active_api_key:
+        headers["Authorization"] = f"Bearer {active_api_key}"
 
     payload = {
-        "model": settings.LLM_MODEL,
+        "model": active_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "stream": True,
-        "temperature": 0.3,
+        "temperature": active_temp,
     }
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():

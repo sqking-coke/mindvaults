@@ -60,9 +60,9 @@ def _validate_file_size(file: UploadFile) -> None:
 
 
 async def upload_documents(
-    db: AsyncSession, files: list[UploadFile]
+    db: AsyncSession, files: list[UploadFile], kb_id: int
 ) -> DocumentUploadResponse:
-    """批量上传文档：校验 → 落盘 → 建记录。"""
+    """批量上传文档到指定知识库：校验 → 落盘 → 建记录。"""
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -72,7 +72,6 @@ async def upload_documents(
         ext = _validate_file(file)
         _validate_file_size(file)
 
-        # 生成唯一文件名，保留原始扩展名
         stored_name = f"{uuid.uuid4().hex}.{ext}"
         dest_path = upload_dir / stored_name
 
@@ -86,6 +85,7 @@ async def upload_documents(
             raise
 
         doc = KbDocument(
+            kb_id=kb_id,
             doc_name=file.filename or stored_name,
             doc_type=ext,
             file_path=str(dest_path),
@@ -101,26 +101,30 @@ async def upload_documents(
                 doc_name=doc.doc_name,
                 status=doc.status,
                 chunk_count=doc.chunk_count,
+                kb_id=doc.kb_id,
             )
         )
 
-        # 调度后台摄入管道（解析→切片→向量化→入库）
         schedule_ingestion(AsyncSessionLocal, doc.id, ext, str(dest_path))
 
-        logger.info(f"文档上传成功: id={doc.id} name={doc.doc_name} type={ext}")
+        logger.info(f"文档上传成功: id={doc.id} name={doc.doc_name} kb_id={kb_id}")
 
     await db.commit()
     return DocumentUploadResponse(documents=documents, total=len(documents))
 
 
 async def list_documents(
-    db: AsyncSession, page: int = 1, page_size: int = 20
+    db: AsyncSession, page: int = 1, page_size: int = 20, kb_id: int | None = None
 ) -> DocumentListResponse:
-    """分页查询文档列表（排除已软删除）。"""
+    """分页查询文档列表（排除已软删除，可按 KB 过滤）。"""
     base_query = select(KbDocument).where(KbDocument.deleted_at.is_(None))
+    if kb_id is not None:
+        base_query = base_query.where(KbDocument.kb_id == kb_id)
     count_query = select(func.count()).select_from(KbDocument).where(
         KbDocument.deleted_at.is_(None)
     )
+    if kb_id is not None:
+        count_query = count_query.where(KbDocument.kb_id == kb_id)
 
     total = (await db.execute(count_query)).scalar_one()
     offset = (page - 1) * page_size

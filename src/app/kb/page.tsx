@@ -6,13 +6,15 @@ import KBDashboard from "@/components/kb/KBDashboard";
 import DocumentTable from "@/components/kb/DocumentTable";
 import UploadZone from "@/components/kb/UploadZone";
 import RetrievalSandbox from "@/components/kb/RetrievalSandbox";
+import VaultImportDialog from "@/components/kb/VaultImportDialog";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { 
   Database, 
   ArrowLeft, 
   FileText, 
   Search, 
-  AlertCircle 
+  AlertCircle,
+  FolderOpen
 } from "lucide-react";
 
 export default function KBPage() {
@@ -24,6 +26,7 @@ export default function KBPage() {
 
   // Navigation states
   const [kbTab, setKbTab] = useState<"docs" | "test">("docs");
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   // Toast notifications state
   const [toasts, setToasts] = useState<{ id: string; message: string; type: "info" | "success" | "warning" }[]>([]);
@@ -109,7 +112,35 @@ export default function KBPage() {
             {/* Sub-tab 1: Document Management */}
             {kbTab === "docs" && (
               <div id="kb-tab-docs-content" role="tabpanel" aria-labelledby="kb-tab-docs" className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
-                <UploadZone showToast={showToast} />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2">
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-full flex flex-col justify-center">
+                      <UploadZone showToast={showToast} />
+                    </div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                    <div className="space-y-3">
+                      <div className="h-12 w-12 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600 shadow-sm">
+                        <FolderOpen className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-800">
+                          批量导入 Obsidian Vault
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                          直接扫描本地 Obsidian Markdown 文件夹并批量一键导入，系统将自动进行 YAML 元数据解析及内链 Wiki 转换。
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsImportOpen(true)}
+                      className="mt-4 w-full py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 hover:text-violet-700 rounded-xl text-xs font-semibold text-violet-600 transition-all focus:outline-none flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      立即导入 Obsidian Vault
+                    </button>
+                  </div>
+                </div>
                 <DocumentTable />
               </div>
             )}
@@ -126,6 +157,13 @@ export default function KBPage() {
         )}
 
       </div>
+
+      {/* Vault Import Dialog Modal */}
+      <VaultImportDialog 
+        isOpen={isImportOpen} 
+        onClose={() => setIsImportOpen(false)} 
+        showToast={showToast} 
+      />
 
       {/* Floating Toast Notification Container */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2.5 max-w-sm pointer-events-none">

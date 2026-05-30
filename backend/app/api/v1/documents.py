@@ -32,10 +32,11 @@ router = APIRouter(tags=["documents"])
 async def upload(
     request: Request,
     files: list[UploadFile] = File(..., description="上传文件列表"),
+    kb_id: int = Query(..., description="目标知识库 ID"),
     db: AsyncSession = Depends(get_db),
 ):
     """批量上传文档（multipart/form-data）。"""
-    result: DocumentUploadResponse = await upload_documents(db, files)
+    result: DocumentUploadResponse = await upload_documents(db, files, kb_id)
     return success_response(result.model_dump())
 
 
@@ -43,10 +44,11 @@ async def upload(
 async def list_docs(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    kb_id: int | None = Query(None, description="按知识库过滤"),
     db: AsyncSession = Depends(get_db),
 ):
     """分页查询文档列表。"""
-    result: DocumentListResponse = await list_documents(db, page, page_size)
+    result: DocumentListResponse = await list_documents(db, page, page_size, kb_id)
     return success_response(result.model_dump())
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { Upload } from "lucide-react";
 
@@ -9,14 +9,20 @@ interface UploadZoneProps {
 }
 
 export default function UploadZone({ showToast }: UploadZoneProps) {
-  const { 
-    activeKbId, 
-    uploadDocuments 
+  const {
+    activeKbId,
+    uploadDocuments
   } = usemindvaults();
 
   const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Drag & drop handlers
+  const handleFiles = (files: File[]) => {
+    if (!activeKbId || files.length === 0) return;
+    uploadDocuments(activeKbId, files);
+    showToast(`正在上传 ${files.length} 个文件到后端...`, "info");
+  };
+
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -29,75 +35,54 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (!activeKbId) return;
-
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    if (droppedFiles.length > 0) {
-      uploadDocuments(activeKbId, droppedFiles);
-      showToast(`正在上传 ${droppedFiles.length} 个文件到后端...`, "info");
-    }
+    handleFiles(Array.from(e.dataTransfer.files));
   };
 
-  // Mock file buttons — demo only, no real upload
-  const triggerMockUpload = () => {
-    showToast("请拖放真实文件到此区域上传至后端，快捷按钮仅作演示。", "warning");
+  const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFiles(Array.from(e.target.files || []));
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
-    <div 
+    <div
       role="button"
       tabIndex={0}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      onClick={() => triggerMockUpload()}
+      onClick={() => fileInputRef.current?.click()}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if ((e.key === "Enter" || e.key === " ") && !isDragging) {
           e.preventDefault();
-          triggerMockUpload();
+          fileInputRef.current?.click();
         }
       }}
-      aria-label="上传文档区域，拖放 PDF、DOCX、TXT 文件至此，或回车/空格点击以模拟文件上传"
-      className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 cursor-pointer select-none flex flex-col items-center justify-center space-y-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent ${
-        isDragging 
-          ? "border-indigo-500 bg-indigo-50/50" 
-          : "border-slate-300 hover:border-indigo-400 hover:bg-slate-100/30"
+      aria-label="上传文档区域，拖放 PDF、DOCX、TXT 文件至此，或点击选择文件"
+      className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer flex flex-col items-center justify-center space-y-3 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${
+        isDragging
+          ? "border-indigo-500 bg-indigo-50/50 scale-[0.99]"
+          : "border-slate-200 hover:border-indigo-400 hover:bg-slate-50/50"
       }`}
     >
       <div className="h-12 w-12 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-sm">
-        <Upload className="h-6 w-6" />
+        <Upload className="h-5.5 w-5.5" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-slate-800">
-          拖拽 PDF, DOCX, TXT 文件到此处上传
+        <p className="text-xs font-bold text-slate-800">
+          拖拽 PDF、DOCX、TXT 文件到此处上传，或点击浏览选择
         </p>
-        <p className="text-xs text-slate-400 mt-1">
-          支持拖拽系统文件。直接点击此处模拟加载高保定研究报告或政策文档。
+        <p className="text-[10px] text-slate-400 mt-1.5 max-w-[360px] mx-auto leading-relaxed">
+          支持 PDF、Microsoft Word、Markdown、TXT 与 CSV 等常见离线文档格式，支持批量多选
         </p>
       </div>
-      
-      {/* Shortcut Mock Upload files selection */}
-      <div className="pt-2 flex flex-wrap justify-center gap-2" onClick={(e) => e.stopPropagation()}>
-        <span className="text-[11px] text-slate-400 font-medium self-center">快捷添加样例:</span>
-        <button
-          onClick={() => triggerMockUpload()}
-          className="text-[10px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 hover:border-indigo-200 font-semibold px-2 py-1 rounded"
-        >
-          + 市场调研报告.pdf
-        </button>
-        <button
-          onClick={() => triggerMockUpload()}
-          className="text-[10px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 hover:border-indigo-200 font-semibold px-2 py-1 rounded"
-        >
-          + 产品说明规格书.docx
-        </button>
-        <button
-          onClick={() => triggerMockUpload()}
-          className="text-[10px] bg-slate-100 hover:bg-red-50 hover:text-red-600 border border-slate-200 hover:border-red-200 font-semibold px-2 py-1 rounded"
-        >
-          + 无法解析文件.exe
-        </button>
-      </div>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={onFileSelect}
+        multiple
+        accept=".pdf,.docx,.doc,.txt,.md,.csv,.xlsx,.pptx,.json,.html"
+        className="hidden"
+      />
     </div>
   );
 }
