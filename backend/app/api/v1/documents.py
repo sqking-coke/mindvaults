@@ -38,6 +38,14 @@ async def upload(
     db: AsyncSession = Depends(get_db),
 ):
     """批量上传文档（multipart/form-data）。"""
+    from app.config import settings
+
+    # 文件数量限制
+    if len(files) > settings.MAX_FILES_PER_UPLOAD:
+        from app.core.exceptions import BadRequestError
+        raise BadRequestError(
+            f"单次最多上传 {settings.MAX_FILES_PER_UPLOAD} 个文件，当前 {len(files)} 个"
+        )
     result: DocumentUploadResponse = await upload_documents(db, files, kb_id)
     return success_response(result.model_dump())
 
