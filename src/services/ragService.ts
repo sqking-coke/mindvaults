@@ -27,7 +27,7 @@ export type { OverviewStats, FrequentQuestionsResponse, UnansweredListResponse }
 
 // ==================== 类型转换 ====================
 
-export function kbDocumentToDocRecord(doc: KbDocument & { kb_id?: number }): DocumentRecord {
+export function kbDocumentToDocRecord(doc: KbDocument): DocumentRecord {
   let status: "uploading" | "parsing" | "success" | "failed" | "disabled" = "failed";
   if (doc.status === 0) status = "failed";
   else if (doc.status === 1) status = "parsing";
@@ -39,7 +39,8 @@ export function kbDocumentToDocRecord(doc: KbDocument & { kb_id?: number }): Doc
     kbId: doc.kb_id != null ? String(doc.kb_id) : "kb-default",
     name: doc.doc_name,
     size: "—",
-    chars: doc.chunk_count,
+    chars: doc.char_count || 0,
+    chunkCount: doc.chunk_count || 0,
     status,
     progress: 100,
     uploadedAt: formatDateTime(doc.created_at),
@@ -86,6 +87,7 @@ const DEFAULT_KNOWLEDGE_BASE: KnowledgeBase = {
   name: "默认知识库",
   description: "本地私有化 RAG 知识库，所有文档在此统一管理与检索。",
   doc_count: 0,
+  char_count: 0,
   created_at: "",
   updated_at: "",
 };
@@ -126,7 +128,7 @@ export async function fetchDocuments(
 ): Promise<{ docs: DocumentRecord[]; total: number }> {
   let path = `/api/v1/kb/documents?page=${page}&page_size=${pageSize}`;
   if (kbId !== undefined) path += `&kb_id=${kbId}`;
-  const data = await api.get<{ items: (KbDocument & { kb_id?: number })[]; total: number }>(path, signal);
+  const data = await api.get<{ items: KbDocument[]; total: number }>(path, signal);
   return {
     docs: data.items.map(kbDocumentToDocRecord),
     total: data.total,
@@ -307,9 +309,16 @@ export async function importVault(
 export async function uploadVault(
   files: File[],
   source: string = "obsidian",
+  kbId?: number,
   signal?: AbortSignal,
 ): Promise<VaultImportResponse> {
-  return api.uploadVaultFiles<VaultImportResponse>("/api/v1/kb/vaults/upload", files, source, signal);
+  return api.uploadVaultFiles<VaultImportResponse>(
+    "/api/v1/kb/vaults/upload",
+    files,
+    source,
+    kbId,
+    signal,
+  );
 }
 
 // ==================== 系统信息 API ====================

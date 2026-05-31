@@ -77,14 +77,17 @@ export async function uploadVaultFiles<T>(
   path: string,
   files: File[],
   source: string = "obsidian",
+  kbId?: number,
   signal?: AbortSignal,
 ): Promise<T> {
   const form = new FormData();
   files.forEach((f) => {
-    // Preserve webkitRelativePath as the file's filename in multipart payload
     form.append("files", f, f.webkitRelativePath || f.name);
   });
   form.append("source", source);
+  if (kbId !== undefined) {
+    form.append("kb_id", String(kbId));
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     body: form,

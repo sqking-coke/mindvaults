@@ -18,10 +18,11 @@ import {
 } from "lucide-react";
 
 export default function KBPage() {
-  const { 
-    knowledgeBases, 
-    activeKbId, 
-    setActiveKbId 
+  const {
+    knowledgeBases,
+    activeKbId,
+    setActiveKbId,
+    isKbLoading
   } = usemindvaults();
 
   // Navigation states
@@ -50,8 +51,12 @@ export default function KBPage() {
       {/* Main Panel */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         
-        {/* State 1: KB Detail Dashboard (KB Selected) */}
-        {activeKbId && activeKb ? (
+        {/* Loading */}
+        {isKbLoading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-slate-400 text-sm animate-pulse">加载中...</div>
+          </div>
+        ) : activeKbId && activeKb ? (
           <div className="flex-1 flex flex-col h-full overflow-hidden">
             {/* Header with back button */}
             <header className="h-16 border-b border-slate-200 bg-white pl-16 pr-6 md:px-6 flex items-center justify-between shrink-0 select-none">

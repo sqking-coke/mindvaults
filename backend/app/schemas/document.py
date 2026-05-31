@@ -12,12 +12,15 @@ class DocumentResponse(BaseModel):
     """文档详情响应（对齐 KbDocument 模型）。"""
 
     id: int
+    kb_id: int
     doc_name: str
     doc_type: str
     doc_desc: Optional[str] = None
     file_path: str
     status: int
     chunk_count: int
+    char_count: int = 0
+    source: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -64,8 +67,10 @@ class DocumentStatusToggleResponse(BaseModel):
     """文档状态切换响应。"""
 
     id: int
+    kb_id: int
     doc_name: str
     status: int
+    chunk_count: int
     status_label: str
     updated_at: datetime
 

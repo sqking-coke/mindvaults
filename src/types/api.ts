@@ -45,12 +45,15 @@ export interface Session {
 /** 知识库文档（对应后端 KbDocument） */
 export interface KbDocument {
   id: number;
+  kb_id: number;
   doc_name: string;
   doc_type: "txt" | "md" | "pdf" | "docx" | "doc";
   doc_desc: string | null;
   file_path: string;
   status: 0 | 1 | 2 | 3; // 0=失败, 1=解析中, 2=成功, 3=禁用
   chunk_count: number;
+  char_count?: number;
+  source?: string;
   created_at: string;
   updated_at: string;
 }
@@ -101,6 +104,7 @@ export interface KnowledgeBase {
   name: string;
   description: string;
   doc_count: number;
+  char_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -117,6 +121,7 @@ export interface DocumentRecord {
   name: string;
   size: string;
   chars: number;
+  chunkCount: number;
   status: "uploading" | "parsing" | "success" | "failed" | "disabled";
   progress: number; // 0~100
   uploadedAt: string;
@@ -149,7 +154,7 @@ export interface PaginatedData<T> {
 
 /** POST /api/v1/kb/documents — UploadResponse */
 export interface DocumentUploadResponse {
-  documents: Pick<KbDocument, "id" | "doc_name" | "status" | "chunk_count">[];
+  documents: Pick<KbDocument, "id" | "kb_id" | "doc_name" | "status" | "chunk_count">[];
   total: number;
 }
 
@@ -354,6 +359,7 @@ export interface SystemConfigRequest {
 export interface VaultImportRequest {
   path: string;
   source?: string;
+  kb_id: number;
 }
 
 export interface VaultImportError {

@@ -15,9 +15,8 @@ export default function KBDashboard() {
   const { 
     knowledgeBases, 
     setActiveKbId, 
-    addKnowledgeBase, 
-    deleteKnowledgeBase,
-    documents
+    addKnowledgeBase,
+    deleteKnowledgeBase
   } = usemindvaults();
 
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -147,11 +146,6 @@ export default function KBDashboard() {
           </div>
         ) : (
           knowledgeBases.map((kb) => {
-            // Get document statistics for this KB
-            const kbDocs = documents.filter(d => d.kbId === String(kb.id));
-            const parsedDocs = kbDocs.filter(d => d.status === "success");
-            const totalChars = parsedDocs.reduce((acc, curr) => acc + curr.chars, 0);
-
             return (
               <div
                 key={kb.id}
@@ -196,13 +190,13 @@ export default function KBDashboard() {
                 <div className="border-t border-slate-100 pt-3 flex items-center justify-between text-[10px] text-slate-500 font-medium">
                   <div className="flex items-center gap-3">
                     <span className="flex flex-col">
-                      <b className="text-slate-800 font-semibold font-mono text-xs">{kbDocs.length}</b>
+                      <b className="text-slate-800 font-semibold font-mono text-xs">{kb.doc_count}</b>
                       <span>关联文档</span>
                     </span>
                     <span className="h-5 w-[1px] bg-slate-100" />
                     <span className="flex flex-col">
                       <b className="text-slate-800 font-semibold font-mono text-xs">
-                        {totalChars > 10000 ? `${(totalChars / 10000).toFixed(1)}w` : totalChars.toLocaleString()}
+                        {(kb.char_count || 0) > 10000 ? `${((kb.char_count || 0) / 10000).toFixed(1)}w` : (kb.char_count || 0).toLocaleString()}
                       </b>
                       <span>提取字符</span>
                     </span>

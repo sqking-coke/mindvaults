@@ -1138,7 +1138,7 @@ export default function Home() {
       <section id="onboarding" className="onboarding-section">
         <div className="lp-container">
           <div style={{ textAlign: "center", marginBottom: "4rem" }}>
-            <h2 className="lp-section-title">五分钟，激活您的本地智金库</h2>
+            <h2 className="lp-section-title">五分钟，搭建您的专属私有智库</h2>
             <p className="lp-section-desc" style={{ margin: "0 auto" }}>
               mindvaults 遵循极简部署规范，只需极少前置步骤即可开始体验。
             </p>

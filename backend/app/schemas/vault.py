@@ -9,6 +9,7 @@ class VaultImportRequest(BaseModel):
 
     path: str = Field(..., description="Vault 根目录绝对路径")
     source: str = Field("obsidian", description="来源标识（默认 obsidian）")
+    kb_id: int = Field(..., description="目标知识库 ID")
 
 
 class VaultErrorEntry(BaseModel):

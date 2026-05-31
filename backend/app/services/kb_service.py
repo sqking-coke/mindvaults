@@ -1,4 +1,5 @@
 """知识库 CRUD 服务层。"""
+from loguru import logger
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +7,7 @@ from app.core.exceptions import AppException
 from app.models.knowledge_base import KnowledgeBase
 from app.models.config import KbConfig
 from app.models.document import KbDocument
+from app.models.session import KbSession
 from app.schemas.knowledge_base import (
     KbCreateRequest, KbUpdateRequest, KbConfigRequest,
 )
@@ -36,33 +38,51 @@ async def get_kb(db: AsyncSession, kb_id: int) -> KnowledgeBase:
 
 
 async def list_kbs(db: AsyncSession) -> list[dict]:
-    """列出所有知识库，含文档计数（排除软删除）。"""
+    """列出所有知识库，含文档计数和字符总量（排除软删除）。"""
+    from app.models.chunk import KbChunk
+
+    # 子查询：只统计未删除文档的切片字符数
+    char_subq = (
+        select(func.coalesce(func.sum(func.length(KbChunk.content)), 0))
+        .select_from(KbChunk)
+        .join(KbDocument, KbChunk.document_id == KbDocument.id)
+        .where(KbDocument.kb_id == KnowledgeBase.id)
+        .correlate(KnowledgeBase)
+        .scalar_subquery()
+    )
+
     rows = (
         await db.execute(
             select(
                 KnowledgeBase,
-                func.count(KbDocument.id).label("doc_count"),
+                func.count(func.distinct(KbDocument.id)).label("doc_count"),
+                char_subq.label("char_count"),
             )
             .outerjoin(
                 KbDocument,
-                (KbDocument.kb_id == KnowledgeBase.id) & (KbDocument.deleted_at.is_(None)),
+                KbDocument.kb_id == KnowledgeBase.id,
             )
             .group_by(KnowledgeBase.id)
             .order_by(KnowledgeBase.id)
         )
     ).all()
 
-    return [
-        {
+    result = []
+    for kb, doc_count, char_count in rows:
+        logger.info(
+            f"list_kbs kb_id={kb.id} name={kb.name} "
+            f"doc_count={doc_count} char_count={char_count}"
+        )
+        result.append({
             "id": kb.id,
             "name": kb.name,
             "description": kb.description or "",
             "doc_count": doc_count,
+            "char_count": char_count,
             "created_at": kb.created_at,
             "updated_at": kb.updated_at,
-        }
-        for kb, doc_count in rows
-    ]
+        })
+    return result
 
 
 async def update_kb(db: AsyncSession, kb_id: int, req: KbUpdateRequest) -> KnowledgeBase:
@@ -77,13 +97,47 @@ async def update_kb(db: AsyncSession, kb_id: int, req: KbUpdateRequest) -> Knowl
 
 
 async def delete_kb(db: AsyncSession, kb_id: int) -> None:
-    """级联删除 KB → 文档 → 切片 + 会话 → QA 记录（数据库 ON DELETE CASCADE）。"""
+    """级联删除 KB → 文档 → 切片 + 会话 → QA 记录，同时清理磁盘文件和 Redis 缓存。"""
+    from pathlib import Path
     from sqlalchemy import delete
+
     kb = await get_kb(db, kb_id)
-    # 先手动删 kb_config（PK 即 FK，不能依赖 CASCADE 置 NULL）
+
+    # 1. 收集待清理的磁盘文件路径
+    doc_rows = (
+        await db.execute(select(KbDocument.file_path).where(KbDocument.kb_id == kb_id))
+    ).fetchall()
+
+    # 2. 收集待清理的 Redis 会话缓存 key
+    session_rows = (
+        await db.execute(select(KbSession.session_id).where(KbSession.kb_id == kb_id))
+    ).fetchall()
+
+    # 3. 手动删 kb_config（PK 即 FK，不能依赖 CASCADE 置 NULL）
     await db.execute(delete(KbConfig).where(KbConfig.kb_id == kb_id))
+
+    # 4. 级联删除 KB
     await db.delete(kb)
     await db.commit()
+
+    # 5. 清理磁盘文件（commit 成功后执行，失败不影响主流程）
+    for (file_path,) in doc_rows:
+        try:
+            p = Path(file_path)
+            if p.exists():
+                p.unlink()
+        except Exception:
+            pass
+
+    # 6. 清理 Redis 推理缓存
+    if session_rows:
+        try:
+            from app.core.redis import get_redis
+            redis = await get_redis()
+            keys = [f"mv:thinking:{s[0]}" for s in session_rows]
+            await redis.delete(*keys)
+        except Exception:
+            pass
 
 
 async def get_kb_config(db: AsyncSession, kb_id: int) -> KbConfig:

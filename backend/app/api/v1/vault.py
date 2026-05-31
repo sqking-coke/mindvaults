@@ -27,7 +27,7 @@ async def import_vault_endpoint(
     5. 调度后台摄入管道进行切片/向量化
     """
     try:
-        result = await import_vault(db, payload.path, payload.source)
+        result = await import_vault(db, payload.path, payload.source, payload.kb_id)
         # 如果有失败项且导入了 0 条，返回 422
         if result["failed"] > 0 and result["imported"] == 0:
             return error_response(422, "Vault 导入全部失败，详见 errors 字段")
@@ -41,6 +41,7 @@ async def import_vault_endpoint(
 async def upload_vault_endpoint(
     files: list[UploadFile] = File(...),
     source: str = Form("obsidian"),
+    kb_id: int = Form(..., description="目标知识库 ID"),
     db: AsyncSession = Depends(get_db),
 ):
     """上传本地 Obsidian Vault 文件夹内的文件列表，批量导入到知识库。
@@ -58,7 +59,7 @@ async def upload_vault_endpoint(
         if not md_files:
             return error_response(422, "未检测到任何 Markdown (.md) 文件，请确认是否拖入了正确的 Vault 目录。")
         
-        result = await import_vault_files(db, md_files, source)
+        result = await import_vault_files(db, md_files, source, kb_id)
         
         # 如果全部失败，返回 422
         if result["failed"] > 0 and result["imported"] == 0:

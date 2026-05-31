@@ -19,7 +19,7 @@ from app.services.document_service import (
     list_documents,
     get_document,
     update_document,
-    soft_delete_document,
+    hard_delete_document,
     toggle_document_status,
     reindex_document,
 )
@@ -101,7 +101,7 @@ async def reindex_doc(
 @router.delete("/documents/{doc_id}")
 async def delete_doc(doc_id: int, db: AsyncSession = Depends(get_db)):
     """软删除文档。"""
-    await soft_delete_document(db, doc_id)
+    await hard_delete_document(db, doc_id)
     return success_response(None)
 
 

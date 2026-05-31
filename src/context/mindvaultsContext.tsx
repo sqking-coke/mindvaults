@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import type {
   Citation,
   Message,
@@ -53,6 +53,7 @@ interface mindvaultsContextType {
   knowledgeBases: KnowledgeBase[];
   activeKbId: string | null;
   setActiveKbId: (id: string | null) => void;
+  isKbLoading: boolean;
   addKnowledgeBase: (name: string, description: string) => void;
   deleteKnowledgeBase: (id: string) => void;
   documents: DocumentRecord[];
@@ -91,7 +92,13 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [activeKbId, setActiveKbId] = useState<string | null>(null);
+  const [isKbLoading, setIsKbLoading] = useState(true);
+  const [activeKbId, setActiveKbId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("mv_active_kb_id");
+    }
+    return null;
+  });
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
 
   // --- Dynamic LLM and System configuration ---
@@ -142,16 +149,22 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         if (kbs.length > 0) {
           setKnowledgeBases(kbs);
-          // 不自动选中，进入 /kb 先展示知识库总览面板
+          // 恢复上次选中的 KB（localStorage），否则不自动选中
+          const savedKbId = localStorage.getItem("mv_active_kb_id");
+          if (savedKbId && kbs.some(k => String(k.id) === savedKbId)) {
+            setActiveKbId(savedKbId);
+          }
         } else {
-          // 后端没有 KB 时用默认兜底
           const defaultKb = getDefaultKnowledgeBase();
           setKnowledgeBases([defaultKb]);
           setActiveKbId(String(defaultKb.id));
         }
 
-        // 加载默认 KB 的文档和会话
-        const kbId = kbs.length > 0 ? kbs[0].id : 1;
+        // 加载文档（优先用恢复的 KB，否则默认第一个）
+        const restoredKbId = localStorage.getItem("mv_active_kb_id");
+        const kbId = (restoredKbId && kbs.some(k => String(k.id) === restoredKbId))
+          ? Number(restoredKbId)
+          : (kbs.length > 0 ? kbs[0].id : 1);
         const [docResult, sessions] = await Promise.all([
           fetchDocuments(1, 50, kbId),
           fetchSessions(),
@@ -175,11 +188,22 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const defaultKb = getDefaultKnowledgeBase();
         setKnowledgeBases([defaultKb]);
         setActiveKbId(String(defaultKb.id));
+      } finally {
+        if (!cancelled) setIsKbLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
   }, []);
+
+  // activeKbId 持久化到 localStorage
+  useEffect(() => {
+    if (activeKbId) {
+      localStorage.setItem("mv_active_kb_id", activeKbId);
+    } else {
+      localStorage.removeItem("mv_active_kb_id");
+    }
+  }, [activeKbId]);
 
   // 切换 KB 时重新加载文档列表
   useEffect(() => {
@@ -187,6 +211,43 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!kbId || kbId <= 0) return;
     fetchDocuments(1, 50, kbId).then((r) => setDocuments(r.docs)).catch(() => {});
   }, [activeKbId]);
+
+  // 轮询刷新：有上传中/解析中文档时每 3 秒刷新，直到全部完成（最多 30 次/90 秒）
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    const hasPending = documents.some(
+      (d) => d.status === "uploading" || d.status === "parsing"
+    );
+    if (!hasPending || pollingRef.current) return;
+
+    let polls = 0;
+    const maxPolls = 30;
+    const kbId = Number(activeKbId || 1);
+    pollingRef.current = setInterval(async () => {
+      polls++;
+      try {
+        const refreshed = await fetchDocuments(1, 50, kbId);
+        const stillPending = refreshed.docs.some(
+          (d) => d.status === "uploading" || d.status === "parsing"
+        );
+        setDocuments(refreshed.docs);
+        if (!stillPending || polls >= maxPolls) {
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+        }
+      } catch {
+        clearInterval(pollingRef.current!);
+        pollingRef.current = null;
+      }
+    }, 3000);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [documents]);
 
   // load chat history when switching conversations
   useEffect(() => {
@@ -474,6 +535,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         name: f.name,
         size: f.size > 1024 * 1024 ? `${(f.size / (1024 * 1024)).toFixed(1)} MB` : `${(f.size / 1024).toFixed(0)} KB`,
         chars: 0,
+        chunkCount: 0,
         status: "uploading" as const,
         progress: 10,
         uploadedAt: now,
@@ -492,6 +554,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             file_path: "",
             status: d.status,
             chunk_count: d.chunk_count,
+            kb_id: d.kb_id,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           }));
@@ -524,7 +587,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const importVaultHandler = useCallback(
     async (path: string, source: string = "obsidian") => {
       try {
-        const response = await apiImportVault({ path, source });
+        const kbId = Number(activeKbId || 1);
+        const response = await apiImportVault({ path, source, kb_id: kbId });
         try {
           const kbId = Number(activeKbId || 1);
           const result = await fetchDocuments(1, 50, kbId);
@@ -544,7 +608,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const uploadVaultHandler = useCallback(
     async (files: File[], source: string = "obsidian") => {
       try {
-        const response = await apiUploadVault(files, source);
+        const kbId = Number(activeKbId || 1);
+        const response = await apiUploadVault(files, source, kbId);
         try {
           const kbId = Number(activeKbId || 1);
           const result = await fetchDocuments(1, 50, kbId);
@@ -683,6 +748,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         knowledgeBases,
         activeKbId,
         setActiveKbId,
+        isKbLoading,
         addKnowledgeBase,
         deleteKnowledgeBase,
         documents,

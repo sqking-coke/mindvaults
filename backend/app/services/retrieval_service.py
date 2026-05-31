@@ -48,7 +48,6 @@ async def _pgvector_search(
         )
         .join(KbDocument, KbChunk.document_id == KbDocument.id)
         .where(
-            KbDocument.deleted_at.is_(None),
             KbDocument.status == DOC_STATUS_COMPLETED,
             KbDocument.kb_id == kb_id,
             func.cosine_distance(KbChunk.embedding, vec) <= 1.0 - thresh,

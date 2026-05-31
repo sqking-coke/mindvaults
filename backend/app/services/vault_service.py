@@ -152,7 +152,7 @@ def normalize_wikilinks(content: str) -> str:
 # ── 批量导入编排 ────────────────────────────────────────────────
 
 async def import_vault(
-    db: AsyncSession, vault_path: str, source: str = "obsidian"
+    db: AsyncSession, vault_path: str, source: str = "obsidian", kb_id: int = 1
 ) -> dict[str, Any]:
     """扫描 Vault → 解析 frontmatter → 处理 wikilink → 写入暂存区 → 调度摄入管道。
 
@@ -233,6 +233,8 @@ async def import_vault(
 
             # 7. 创建文档记录
             doc = KbDocument(
+                kb_id=kb_id,
+                source=source,
                 doc_name=file_path.name,
                 doc_type="md",
                 doc_desc=doc_desc,
@@ -279,7 +281,7 @@ async def import_vault(
 
 
 async def import_vault_files(
-    db: AsyncSession, files: list[UploadFile], source: str = "obsidian"
+    db: AsyncSession, files: list[UploadFile], source: str = "obsidian", kb_id: int = 1
 ) -> dict[str, Any]:
     """处理前端上传的 Vault 多文件流，解析 frontmatter 与 wikilinks 并批量导入入库。
 
@@ -329,6 +331,8 @@ async def import_vault_files(
 
             # 7. 创建数据库文档记录
             doc = KbDocument(
+                kb_id=kb_id,
+                source=source,
                 doc_name=base_name,
                 doc_type="md",
                 doc_desc=doc_desc,

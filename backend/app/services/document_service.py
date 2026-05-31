@@ -122,13 +122,21 @@ async def upload_documents(
 async def list_documents(
     db: AsyncSession, page: int = 1, page_size: int = 20, kb_id: int | None = None
 ) -> DocumentListResponse:
-    """分页查询文档列表（排除已软删除，可按 KB 过滤）。"""
-    base_query = select(KbDocument).where(KbDocument.deleted_at.is_(None))
+    """分页查询文档列表（可按 KB 过滤）。"""
+    from app.models.chunk import KbChunk
+
+    base_query = (
+        select(
+            KbDocument,
+            func.coalesce(func.sum(func.length(KbChunk.content)), 0).label("char_count"),
+        )
+        .outerjoin(KbChunk, KbChunk.document_id == KbDocument.id)
+        .group_by(KbDocument.id)
+    )
     if kb_id is not None:
         base_query = base_query.where(KbDocument.kb_id == kb_id)
-    count_query = select(func.count()).select_from(KbDocument).where(
-        KbDocument.deleted_at.is_(None)
-    )
+
+    count_query = select(func.count()).select_from(KbDocument)
     if kb_id is not None:
         count_query = count_query.where(KbDocument.kb_id == kb_id)
 
@@ -140,9 +148,18 @@ async def list_documents(
             .offset(offset)
             .limit(page_size)
         )
-    ).scalars().all()
+    ).all()
 
-    items = [DocumentResponse.model_validate(row) for row in rows]
+    items = []
+    for doc, char_count in rows:
+        item = DocumentResponse.model_validate(doc)
+        item.char_count = char_count
+        logger.info(
+            f"list_documents doc_id={doc.id} kb_id={kb_id} "
+            f"chunk_count={doc.chunk_count} char_count={char_count}"
+        )
+        items.append(item)
+    logger.info(f"list_documents total={total} kb_id={kb_id} rows={len(items)}")
     return DocumentListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -151,7 +168,7 @@ async def get_document(db: AsyncSession, doc_id: int) -> DocumentResponse:
     row = (
         await db.execute(
             select(KbDocument).where(
-                KbDocument.id == doc_id, KbDocument.deleted_at.is_(None)
+                KbDocument.id == doc_id
             )
         )
     ).scalar_one_or_none()
@@ -168,7 +185,7 @@ async def update_document(
     row = (
         await db.execute(
             select(KbDocument).where(
-                KbDocument.id == doc_id, KbDocument.deleted_at.is_(None)
+                KbDocument.id == doc_id
             )
         )
     ).scalar_one_or_none()
@@ -185,22 +202,33 @@ async def update_document(
     return DocumentResponse.model_validate(row)
 
 
-async def soft_delete_document(db: AsyncSession, doc_id: int) -> None:
-    """软删除文档：设置 deleted_at 时间戳。"""
-    row = (
-        await db.execute(
-            select(KbDocument).where(
-                KbDocument.id == doc_id, KbDocument.deleted_at.is_(None)
-            )
-        )
-    ).scalar_one_or_none()
+async def hard_delete_document(db: AsyncSession, doc_id: int) -> None:
+    """硬删除文档及其所有切片（物理删除，不可恢复）。"""
+    from pathlib import Path
+    from sqlalchemy import delete
+    from app.models.chunk import KbChunk
 
+    row = (await db.execute(select(KbDocument).where(KbDocument.id == doc_id))).scalar_one_or_none()
     if row is None:
         raise DocNotFoundError(f"文档不存在: id={doc_id}")
 
-    row.deleted_at = datetime.now(timezone.utc)
+    file_path = row.file_path
+    doc_name = row.doc_name
+
+    # 先删切片，再删文档（chunk FK 有 CASCADE，但显式执行更清晰）
+    await db.execute(delete(KbChunk).where(KbChunk.document_id == doc_id))
+    await db.delete(row)
     await db.commit()
-    logger.info(f"文档软删除: id={doc_id} name={row.doc_name}")
+
+    # 清理磁盘文件
+    try:
+        p = Path(file_path)
+        if p.exists():
+            p.unlink()
+    except Exception:
+        pass
+
+    logger.info(f"文档硬删除: id={doc_id} name={doc_name}")
 
 
 _STATUS_LABEL_MAP = {
@@ -219,7 +247,7 @@ async def toggle_document_status(
     row = (
         await db.execute(
             select(KbDocument).where(
-                KbDocument.id == doc_id, KbDocument.deleted_at.is_(None)
+                KbDocument.id == doc_id
             )
         )
     ).scalar_one_or_none()
@@ -240,8 +268,10 @@ async def toggle_document_status(
 
     return DocumentStatusToggleResponse(
         id=row.id,
+        kb_id=row.kb_id,
         doc_name=row.doc_name,
         status=row.status,
+        chunk_count=row.chunk_count,
         status_label=label,
         updated_at=row.updated_at,
     )
@@ -252,7 +282,7 @@ async def reindex_document(db: AsyncSession, doc_id: int) -> ReindexResponse:
     row = (
         await db.execute(
             select(KbDocument).where(
-                KbDocument.id == doc_id, KbDocument.deleted_at.is_(None)
+                KbDocument.id == doc_id
             )
         )
     ).scalar_one_or_none()
