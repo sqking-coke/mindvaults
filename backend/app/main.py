@@ -69,21 +69,18 @@ def create_app() -> FastAPI:
 def _setup_logging() -> None:
     logger.remove()
 
-    # 统一日志格式（毫秒级 + trace_id + 结构化字段）
+    # 统一日志格式（毫秒级 + trace_id + session_id）
     LOG_FORMAT = (
         "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
         "<level>{level: <8}</level> | "
-        "<yellow>[{extra[trace_id]:>16}]</yellow> | "
+        "[<yellow>{extra[trace_id]:>16}</yellow>] | "
+        "[<blue>{extra[session_id]:>12}</blue>] | "
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
         "<level>{message}</level>"
     )
 
     # stderr（带颜色）
-    logger.add(
-        sys.stderr,
-        level=settings.LOG_LEVEL,
-        format=LOG_FORMAT,
-    )
+    logger.add(sys.stderr, level=settings.LOG_LEVEL, format=LOG_FORMAT)
 
     # 文件（无颜色，适合日志采集）
     log_dir = Path(settings.LOG_DIR)
@@ -98,8 +95,8 @@ def _setup_logging() -> None:
         colorize=False,
     )
 
-    # 配置默认的 trace_id（无中间件上下文时使用）
-    logger.configure(extra={"trace_id": "—"})
+    # 默认 extra 值（无中间件上下文时使用）
+    logger.configure(extra={"trace_id": "—", "session_id": "—"})
 
 
 _setup_logging()

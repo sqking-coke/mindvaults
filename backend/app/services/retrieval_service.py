@@ -9,6 +9,7 @@ from app.models.chunk import KbChunk
 from app.models.document import KbDocument, DOC_STATUS_COMPLETED
 from app.models.config import KbConfig
 from app.schemas.chat import RefChunk
+from app.utils.logger import log_event
 from app.services.cache_service import CacheService
 
 
@@ -57,7 +58,7 @@ async def _pgvector_search(
     )
 
     rows = (await db.execute(stmt)).all()
-    logger.info(f"pgvector 检索完成: top_k={k} threshold={thresh} hits={len(rows)}")
+    log_event("retrieval_completed", kb_id=kb_id, top_k=k, threshold=round(thresh, 2), hits=len(rows))
 
     return [
         RefChunk(
@@ -92,10 +93,10 @@ async def retrieve_chunks(
             cache = CacheService(redis)
             cached = await cache.get_retrieval(query_embedding)
             if cached:
-                logger.info(f"检索缓存命中: chunks={len(cached)}")
+                log_event("retrieval_cache_hit", chunks=len(cached))
                 return cached
         except Exception:
-            logger.opt(exception=True).warning("Redis 不可用，降级至 pgvector")
+            logger.warning("redis_unavailable fallback=pgvector")
 
     # —— 缓存未命中，走 pgvector ——
     chunks = await _pgvector_search(db, query_embedding, k, thresh, kb)
@@ -105,6 +106,6 @@ async def retrieve_chunks(
         try:
             await cache.set_retrieval(query_embedding, chunks)
         except Exception:
-            logger.opt(exception=True).warning("检索缓存回写失败")
+            logger.warning("retrieval_cache_write_failed")
 
     return chunks

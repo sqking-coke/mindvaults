@@ -32,6 +32,7 @@ from app.schemas.document import (
     ReindexResponse,
 )
 from app.services.ingestion_service import schedule_ingestion
+from app.utils.logger import log_event
 from app.services.cache_service import CacheService
 from app.core.database import AsyncSessionLocal
 from app.core.redis import get_redis
@@ -80,7 +81,7 @@ async def upload_documents(
             with open(dest_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
         except Exception as exc:
-            logger.error(f"文件写入失败: {dest_path} — {exc}")
+            logger.error(f"file_write_failed path=\"{dest_path}\" error=\"{exc}\"")
             if dest_path.exists():
                 dest_path.unlink()
             raise
@@ -108,7 +109,7 @@ async def upload_documents(
 
         ingestion_queue.append((doc.id, ext, str(dest_path)))
 
-        logger.info(f"文档上传成功: id={doc.id} name={doc.doc_name} kb_id={kb_id}")
+        log_event("doc_uploaded", doc_id=doc.id, kb_id=kb_id, file=doc.doc_name)
 
     await db.commit()
 
@@ -154,12 +155,12 @@ async def list_documents(
     for doc, char_count in rows:
         item = DocumentResponse.model_validate(doc)
         item.char_count = char_count
-        logger.info(
+        logger.debug(
             f"list_documents doc_id={doc.id} kb_id={kb_id} "
             f"chunk_count={doc.chunk_count} char_count={char_count}"
         )
         items.append(item)
-    logger.info(f"list_documents total={total} kb_id={kb_id} rows={len(items)}")
+    logger.debug(f"list_documents total={total} kb_id={kb_id} rows={len(items)}")
     return DocumentListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -228,7 +229,7 @@ async def hard_delete_document(db: AsyncSession, doc_id: int) -> None:
     except Exception:
         pass
 
-    logger.info(f"文档硬删除: id={doc_id} name={doc_name}")
+    log_event("doc_deleted", doc_id=doc_id, file=doc_name)
 
 
 _STATUS_LABEL_MAP = {
@@ -264,7 +265,7 @@ async def toggle_document_status(
     await db.refresh(row)
 
     label = _STATUS_LABEL_MAP.get(row.status, "unknown")
-    logger.info(f"文档状态切换: id={doc_id} status={row.status}({label})")
+    log_event("doc_status_changed", doc_id=doc_id, status=label)
 
     return DocumentStatusToggleResponse(
         id=row.id,
@@ -299,7 +300,7 @@ async def reindex_document(db: AsyncSession, doc_id: int) -> ReindexResponse:
         cache = CacheService(redis)
         await cache.invalidate()
     except Exception as exc:
-        logger.warning(f"Redis 缓存清除失败，继续重索引: {exc}")
+        logger.warning(f"redis_cache_invalidation_failed error=\"{exc}\"")
 
     # 重置文档状态并调度后台摄入
     row.status = DOC_STATUS_PROCESSING
@@ -310,7 +311,7 @@ async def reindex_document(db: AsyncSession, doc_id: int) -> ReindexResponse:
     await db.commit()
     await db.refresh(row)
 
-    logger.info(f"文档重索引已提交: id={doc_id} name={row.doc_name}")
+    log_event("doc_reindex_submitted", doc_id=doc_id, file=row.doc_name)
 
     return ReindexResponse(
         doc_id=row.id,

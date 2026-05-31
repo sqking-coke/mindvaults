@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.chunk import KbChunk
 from app.models.document import KbDocument, DOC_STATUS_PROCESSING, DOC_STATUS_COMPLETED, DOC_STATUS_FAILED
 from app.models.config import KbConfig
+from app.utils.logger import log_event
 from app.services.parser_service import parse_document
 from app.services.chunking_service import chunk_pages
 from app.services.embedding_service import embed_text
@@ -20,7 +21,7 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
             await db.execute(select(KbDocument).where(KbDocument.id == doc_id))
         ).scalar_one_or_none()
         if doc is None:
-            logger.error(f"文档不存在: id={doc_id}")
+            log_event("doc_not_found", doc_id=doc_id)
             return
         doc.status = DOC_STATUS_PROCESSING
         await db.flush()
@@ -28,7 +29,7 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
         # 1. 解析文档，返回 [(text, page_number), ...]
         pages = await parse_document(file_path, doc_type)
         if not pages:
-            logger.warning(f"文档解析无内容: id={doc_id} path={file_path}")
+            log_event("doc_parsing_empty", doc_id=doc_id, path=file_path)
             doc.status = DOC_STATUS_FAILED
             await db.commit()
             return
@@ -43,7 +44,7 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
             mode="semantic",
         )
         if not chunks_with_pages:
-            logger.warning(f"文档切片为空: id={doc_id}")
+            log_event("doc_chunking_empty", doc_id=doc_id)
             doc.status = DOC_STATUS_FAILED
             await db.commit()
             return
@@ -53,7 +54,7 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
             try:
                 embedding = await embed_text(chunk_content)
             except Exception as exc:
-                logger.error(f"向量生成失败: doc_id={doc_id} chunk={idx} — {exc}")
+                logger.error(f"embedding_failed doc_id={doc_id} chunk={idx} error=\"{exc}\"")
                 continue
 
             chunk_record = KbChunk(
@@ -71,12 +72,10 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
         doc.chunk_count = len(chunks_with_pages)
         doc.status = DOC_STATUS_COMPLETED
         await db.commit()
-        logger.info(
-            f"文档摄入完成: id={doc_id} type={doc_type} chunks={len(chunks_with_pages)}"
-        )
+        log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=len(chunks_with_pages))
 
     except Exception as exc:
-        logger.error(f"文档摄入异常: id={doc_id} — {exc}")
+        logger.error(f"doc_ingestion_failed doc_id={doc_id} error=\"{exc}\"")
         await db.rollback()
         # 尝试将文档标记为失败（需要新事务）
         try:
@@ -87,7 +86,7 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
                 doc.status = DOC_STATUS_FAILED
                 await db.commit()
         except Exception as inner_exc:
-            logger.error(f"更新文档失败状态异常: id={doc_id} — {inner_exc}")
+            logger.error(f"doc_status_update_failed doc_id={doc_id} error=\"{inner_exc}\"")
 
 
 def schedule_ingestion(
@@ -102,7 +101,7 @@ def schedule_ingestion(
         loop = asyncio.get_running_loop()
         loop.create_task(_run())
     except RuntimeError:
-        logger.warning("没有运行中的 event loop，跳过后台摄入调度")
+        logger.warning("ingestion_skipped_no_event_loop")
 
 
 async def _get_or_create_config(db: AsyncSession, kb_id: int) -> KbConfig:

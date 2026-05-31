@@ -69,7 +69,7 @@ async def list_kbs(db: AsyncSession) -> list[dict]:
 
     result = []
     for kb, doc_count, char_count in rows:
-        logger.info(
+        logger.debug(
             f"list_kbs kb_id={kb.id} name={kb.name} "
             f"doc_count={doc_count} char_count={char_count}"
         )

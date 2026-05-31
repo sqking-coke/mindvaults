@@ -73,7 +73,7 @@ async def _generate_ollama(
                     if content:
                         yield content
     except httpx.HTTPError as exc:
-        logger.error(f"LLM (ollama) 调用失败: {exc}")
+        logger.error(f"llm_call_failed provider=ollama model={model} error=\"{exc}\"")
         raise LLMCallFailedError(f"LLM 调用失败: {exc}")
 
 
@@ -127,5 +127,5 @@ async def _generate_openai(
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
     except httpx.HTTPError as exc:
-        logger.error(f"LLM (openai) 调用失败: {exc}")
+        logger.error(f"llm_call_failed provider=openai model={model} error=\"{exc}\"")
         raise LLMCallFailedError(f"LLM 调用失败: {exc}")

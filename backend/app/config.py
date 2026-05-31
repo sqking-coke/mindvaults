@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_DIR: str = str(Path(__file__).resolve().parent.parent / "logs")
     LOG_RETENTION: int = 30
+    SLOW_REQUEST_THRESHOLD_MS: int = 5000
+    SLOW_RETRIEVAL_THRESHOLD_MS: int = 500
 
     @property
     def allowed_extensions_list(self) -> list[str]:

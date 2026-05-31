@@ -93,7 +93,10 @@ export default function Sidebar() {
       setTopK(systemConfig.top_k ?? 5);
       setSimilarityThreshold(systemConfig.similarity_threshold ?? 0.7);
     }
-    loadOllamaModels();
+    // 只在 Ollama 模式下加载本地模型列表
+    if (systemConfig?.llm_provider === "ollama") {
+      loadOllamaModels();
+    }
     setIsSettingsOpen(true);
   };
 

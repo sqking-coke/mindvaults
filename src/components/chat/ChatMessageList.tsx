@@ -44,6 +44,10 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
 
   const [collapsedThinkings, setCollapsedThinkings] = useState<Set<string>>(new Set());
 
+  // 打字机动效：生成中的最后一条 assistant 消息逐字展示
+  const typewriterRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [typewriterPos, setTypewriterPos] = useState(0);
+
   // 高频问题（Top-3 动态模板）
   const [frequentQuestions, setFrequentQuestions] = useState<Array<{ question: string; count: number }>>([]);
   useEffect(() => {
@@ -54,6 +58,37 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
 
   // Find active conversation
   const activeConversation = conversations.find(c => c.id === activeConversationId);
+  const lastAssistantMsg = activeConversation?.messages
+    .filter(m => m.role === "assistant")
+    .slice(-1)[0];
+
+  // 打字机动效控制器：只在 isGenerating 变化时启动/停止，不因内容增长重启
+  const fullLenRef = useRef(0);
+  useEffect(() => {
+    fullLenRef.current = lastAssistantMsg?.content?.length || 0;
+  });
+
+  useEffect(() => {
+    if (!isGenerating) {
+      setTypewriterPos(0);
+      if (typewriterRef.current) {
+        clearInterval(typewriterRef.current);
+        typewriterRef.current = null;
+      }
+      return;
+    }
+
+    typewriterRef.current = setInterval(() => {
+      setTypewriterPos(prev => {
+        if (prev >= fullLenRef.current) return prev;
+        return prev + 1;
+      });
+    }, 25);
+
+    return () => {
+      if (typewriterRef.current) clearInterval(typewriterRef.current);
+    };
+  }, [isGenerating]);
 
   // Auto-scroll to bottom of messages
   const lastMessageContentLength = activeConversation?.messages?.[activeConversation.messages.length - 1]?.content?.length || 0;
@@ -278,6 +313,8 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                       {/* Rich parsing and inline citation rendering */}
                       {isUser ? (
                         <div className="whitespace-pre-wrap select-text">{msg.content}</div>
+                      ) : isGenerating && msg.id === lastAssistantMsg?.id ? (
+                        renderMessageContent(msg.content.slice(0, typewriterPos), msg.citations)
                       ) : (
                         renderMessageContent(msg.content, msg.citations)
                       )}

@@ -93,6 +93,14 @@ async def chat_stream(
     """RAG 流式问答主流程，yield (event_type, json_data) 元组。"""
     t_start = time.time()
 
+    # — 0. 提前获取配置 —
+    from app.services.retrieval_service import get_config
+    cfg = await get_config(db)
+    provider = cfg.llm_provider if cfg.llm_provider is not None else settings.LLM_PROVIDER
+    model = cfg.llm_model if cfg.llm_model is not None else settings.LLM_MODEL
+    threshold = cfg.similarity_threshold if cfg.similarity_threshold is not None else 0.5
+    provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
+
     # — 1. 会话校验/创建 —
     session = (
         await db.execute(
@@ -112,18 +120,18 @@ async def chat_stream(
         db.add(session)
         await db.flush()
 
-    await _push_thinking(req.session_id, {"phase": "intent", "message": "正在理解问题...", "intent": _classify_intent(req.question), "elapsed_ms": 0})
+    await _push_thinking(req.session_id, {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0})
     yield (
         "progress",
-        json.dumps({"phase": "intent", "message": "正在理解问题...", "intent": _classify_intent(req.question), "elapsed_ms": 0}),
+        json.dumps({"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}),
     )
 
     # — 2. Embedding —
-    await _push_thinking(req.session_id, {"phase": "retrieval", "message": "正在向量化问题...", "elapsed_ms": int((time.time() - t_start) * 1000)})
+    await _push_thinking(req.session_id, {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)})
     yield (
         "progress",
         json.dumps(
-            {"phase": "retrieval", "message": "正在向量化问题...", "elapsed_ms": int((time.time() - t_start) * 1000)}
+            {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)}
         ),
     )
 
@@ -134,11 +142,11 @@ async def chat_stream(
         return
 
     # — 3. 检索 —
-    await _push_thinking(req.session_id, {"phase": "retrieval", "message": "正在语义检索相关文档...", "elapsed_ms": int((time.time() - t_start) * 1000)})
+    await _push_thinking(req.session_id, {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)})
     yield (
         "progress",
         json.dumps(
-            {"phase": "retrieval", "message": "正在语义检索相关文档...", "elapsed_ms": int((time.time() - t_start) * 1000)}
+            {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)}
         ),
     )
 
@@ -151,9 +159,16 @@ async def chat_stream(
         )
         return
 
+    # 按文档去重汇总
+    from collections import defaultdict
+    doc_groups: dict[str, list] = defaultdict(list)
+    for c in chunks:
+        doc_groups[c.doc_name].append(c)
+
+    doc_names = list(doc_groups.keys())
     await _push_thinking(req.session_id, {
         "phase": "matching",
-        "message": f"已匹配 {len(chunks)} 条相关片段",
+        "message": f"查找到 {len(chunks)} 个相关文档分块，来自 {len(doc_names)} 份文档：",
         "elapsed_ms": int((time.time() - t_start) * 1000),
         "similarity": round(chunks[0].similarity, 4),
     })
@@ -162,19 +177,33 @@ async def chat_stream(
         json.dumps(
             {
                 "phase": "matching",
-                "message": f"已匹配 {len(chunks)} 条相关片段",
+                "message": f"查找到 {len(chunks)} 个相关文档分块，来自 {len(doc_names)} 份文档：",
                 "elapsed_ms": int((time.time() - t_start) * 1000),
                 "similarity": round(chunks[0].similarity, 4),
             }
         ),
     )
 
+    # 逐文档展示匹配详情
+    for idx, (doc_name, doc_chunks) in enumerate(doc_groups.items(), 1):
+        sorted_chunks = sorted(doc_chunks, key=lambda c: c.similarity, reverse=True)
+        for ci, c in enumerate(sorted_chunks[:3]):
+            page_str = f" (页码: {c.page})" if c.page else ""
+            step = {
+                "phase": "matching",
+                "message": f" -> [{idx}.{ci+1}] {c.doc_name}{page_str}，匹配度: {c.similarity:.1%}",
+                "elapsed_ms": int((time.time() - t_start) * 1000),
+                "similarity": round(c.similarity, 4),
+            }
+            await _push_thinking(req.session_id, step)
+            yield ("progress", json.dumps(step))
+
     # — 4. LLM 生成 —
-    await _push_thinking(req.session_id, {"phase": "generating", "message": "正在生成回答...", "elapsed_ms": int((time.time() - t_start) * 1000)})
+    await _push_thinking(req.session_id, {"phase": "generating", "message": f"正在调用大模型 {provider_label}: {model} 进行推理生成...", "elapsed_ms": int((time.time() - t_start) * 1000)})
     yield (
         "progress",
         json.dumps(
-            {"phase": "generating", "message": "正在生成回答...", "elapsed_ms": int((time.time() - t_start) * 1000)}
+            {"phase": "generating", "message": f"正在调用大模型 {provider_label}: {model} 进行推理生成...", "elapsed_ms": int((time.time() - t_start) * 1000)}
         ),
     )
 
