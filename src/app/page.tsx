@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { usemindvaults } from "@/context/mindvaultsContext";
 import "./landing.css";
 
 // Preset responses for RAG Q&A Cognitive Sandbox
@@ -83,15 +82,6 @@ const modelMetrics = {
 };
 
 export default function Home() {
-  const { systemConfig, ollamaModels, loadOllamaModels, updateSystemConfig } = usemindvaults();
-
-  // 加载模型列表
-  useEffect(() => {
-    if (systemConfig?.llm_provider === "ollama" && ollamaModels.length === 0) {
-      loadOllamaModels();
-    }
-  }, [systemConfig, ollamaModels, loadOllamaModels]);
-
   // 1. Mockup panel switching state (aligned to mindvaults actual modules)
   const [mockupView, setMockupView] = useState<"chat" | "documents" | "qa-stats" | "stats" | "security">("chat");
 
@@ -435,36 +425,11 @@ export default function Home() {
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontSize: "0.6rem", color: "#94a3b8", fontWeight: 700 }}>运行智核:</span>
-                    {systemConfig ? (
-                      <select
-                        value={systemConfig.llm_model || ""}
-                        onChange={async (e) => {
-                          const nextModel = e.target.value;
-                          if (nextModel) {
-                            await updateSystemConfig({ llm_model: nextModel });
-                          }
-                        }}
-                        style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 8px", fontSize: "0.65rem", fontWeight: 700, color: "#334155", cursor: "pointer", maxWidth: 180 }}
-                      >
-                        <option value={systemConfig.llm_model}>{systemConfig.llm_model}</option>
-                        {systemConfig.llm_provider === "ollama"
-                          ? ollamaModels.filter((m) => m !== systemConfig.llm_model).map((m) => (
-                              <option key={m} value={m}>{m}</option>
-                            ))
-                          : (() => {
-                              const preset = ["deepseek-v4-pro", "deepseek-v4-flash", "gpt-4o", "gpt-3.5-turbo"];
-                              const current = systemConfig.llm_model;
-                              const list = current && !preset.includes(current) ? [...preset, current] : preset;
-                              return list
-                                .filter((m) => m !== systemConfig.llm_model)
-                                .map((m) => (
-                                  <option key={m} value={m}>{m}</option>
-                                ));
-                            })()}
-                      </select>
-                    ) : (
-                      <span style={{ fontSize: "0.65rem", color: "#94a3b8" }}>加载中...</span>
-                    )}
+                    <select style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, padding: "4px 8px", fontSize: "0.65rem", fontWeight: 700, color: "#334155", cursor: "pointer" }}>
+                      <option>deepseek-v4-pro</option>
+                      <option>deepseek-v4-flash</option>
+                      <option>gpt-4o</option>
+                    </select>
                   </div>
                 </header>
 
@@ -603,7 +568,7 @@ export default function Home() {
                       </div>
                     </div>
                     <p style={{ textAlign: "center", fontSize: "0.55rem", color: "#cbd5e1", marginTop: 8 }}>
-                      模型内核: <b>deepseek-v4-flash</b> (云端 API) · 检索模式: <b>HNSW 向量粗排 + BCE Reranker 重排精选</b>
+                      模型内核: <b>deepseek-v4-pro</b> (云端 API) · 检索模式: <b>HNSW 向量粗排 + BCE Reranker 重排精选</b>
                     </p>
                   </div>
                 </div>
@@ -1173,7 +1138,7 @@ export default function Home() {
       <section id="onboarding" className="onboarding-section">
         <div className="lp-container">
           <div style={{ textAlign: "center", marginBottom: "4rem" }}>
-            <h2 className="lp-section-title">五分钟，激活您的本地智脑金库</h2>
+            <h2 className="lp-section-title">五分钟，激活您的本地智金库</h2>
             <p className="lp-section-desc" style={{ margin: "0 auto" }}>
               mindvaults 遵循极简部署规范，只需极少前置步骤即可开始体验。
             </p>
@@ -1437,6 +1402,7 @@ export default function Home() {
                 <li className="footer-link-item"><a href="#onboarding">部署指南</a></li>
                 <li className="footer-link-item"><a href="#opensource">开源优势</a></li>
                 <li className="footer-link-item"><a href="#faq">常见问题</a></li>
+                <li className="footer-link-item"><Link href="/changelog">更新日志</Link></li>
               </ul>
             </div>
 

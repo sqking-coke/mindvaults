@@ -68,20 +68,38 @@ def create_app() -> FastAPI:
 
 def _setup_logging() -> None:
     logger.remove()
+
+    # 统一日志格式（毫秒级 + trace_id + 结构化字段）
+    LOG_FORMAT = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+        "<level>{level: <8}</level> | "
+        "<yellow>[{extra[trace_id]:>16}]</yellow> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+        "<level>{message}</level>"
+    )
+
+    # stderr（带颜色）
     logger.add(
         sys.stderr,
         level=settings.LOG_LEVEL,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <level>{message}</level>",
+        format=LOG_FORMAT,
     )
+
+    # 文件（无颜色，适合日志采集）
     log_dir = Path(settings.LOG_DIR)
     log_dir.mkdir(parents=True, exist_ok=True)
     logger.add(
         log_dir / "mindvaults_{time:YYYY-MM-DD}.log",
         level=settings.LOG_LEVEL,
+        format=LOG_FORMAT,
         rotation="00:00",
         retention=f"{settings.LOG_RETENTION} days",
         encoding="utf-8",
+        colorize=False,
     )
+
+    # 配置默认的 trace_id（无中间件上下文时使用）
+    logger.configure(extra={"trace_id": "—"})
 
 
 _setup_logging()
