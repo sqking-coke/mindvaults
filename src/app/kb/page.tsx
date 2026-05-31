@@ -175,7 +175,7 @@ export default function KBPage() {
           >
             <AlertCircle className="h-5 w-5 shrink-0 text-indigo-500 mt-0.5" />
             <div className="flex-1">
-              <p className="font-bold text-slate-800 text-xs">演示原型提示</p>
+              <p className="font-bold text-slate-800 text-xs">{toast.type === "success" ? "操作成功" : toast.type === "warning" ? "提示" : "信息"}</p>
               <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">{toast.message}</p>
             </div>
             <button

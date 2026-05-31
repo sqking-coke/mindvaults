@@ -142,7 +142,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         if (kbs.length > 0) {
           setKnowledgeBases(kbs);
-          setActiveKbId(String(kbs[0].id));
+          // 不自动选中，进入 /kb 先展示知识库总览面板
         } else {
           // 后端没有 KB 时用默认兜底
           const defaultKb = getDefaultKnowledgeBase();
