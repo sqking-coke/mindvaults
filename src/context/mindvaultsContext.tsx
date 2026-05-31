@@ -17,6 +17,7 @@ import { formatTime } from "@/utils/date";
 import {
   getDefaultKnowledgeBase,
   fetchDocuments,
+  watchDocuments,
   uploadDocuments as apiUploadDocuments,
   deleteDocument as apiDeleteDocument,
   toggleDocumentStatus as apiToggleDocumentStatus,
@@ -217,40 +218,45 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     fetchDocuments(1, 50, kbId).then((r) => setDocuments(r.docs)).catch(() => {});
   }, [activeKbId]);
 
-  // 轮询刷新：有上传中/解析中文档时每 3 秒刷新，直到全部完成（最多 30 次/90 秒）
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 长轮询刷新：有上传中/解析中文档时 watch 后端状态变更，无 90 秒上限
+  const pollingRef = useRef(false);
+  const pollingAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const hasPending = documents.some(
       (d) => d.status === "uploading" || d.status === "parsing"
     );
     if (!hasPending || pollingRef.current) return;
 
-    let polls = 0;
-    const maxPolls = 30;
+    pollingRef.current = true;
     const kbId = Number(activeKbId || 1);
-    pollingRef.current = setInterval(async () => {
-      polls++;
-      try {
-        const refreshed = await fetchDocuments(1, 50, kbId);
-        const stillPending = refreshed.docs.some(
-          (d) => d.status === "uploading" || d.status === "parsing"
-        );
-        setDocuments(refreshed.docs);
-        if (!stillPending || polls >= maxPolls) {
-          clearInterval(pollingRef.current!);
-          pollingRef.current = null;
+    let cancelled = false;
+
+    const watch = async () => {
+      while (!cancelled) {
+        try {
+          pollingAbortRef.current = new AbortController();
+          const refreshed = await watchDocuments(kbId, 60, pollingAbortRef.current.signal);
+          if (cancelled) return;
+          setDocuments(refreshed.docs);
+          const stillPending = refreshed.docs.some(
+            (d) => d.status === "uploading" || d.status === "parsing"
+          );
+          if (!stillPending) break;
+        } catch {
+          break;
         }
-      } catch {
-        clearInterval(pollingRef.current!);
-        pollingRef.current = null;
       }
-    }, 3000);
+      pollingRef.current = false;
+      pollingAbortRef.current = null;
+    };
+
+    watch();
 
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      cancelled = true;
+      pollingAbortRef.current?.abort();
+      pollingRef.current = false;
+      pollingAbortRef.current = null;
     };
   }, [documents]);
 
@@ -613,7 +619,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw err;
       }
     },
-    [],
+    [activeKbId],
   );
 
   const uploadVaultHandler = useCallback(
@@ -634,7 +640,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw err;
       }
     },
-    [],
+    [activeKbId],
   );
 
   const deleteDocumentHandler = useCallback(

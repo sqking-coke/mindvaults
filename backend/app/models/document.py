@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import BigInteger, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models import Base
@@ -27,6 +28,7 @@ class KbDocument(Base):
     status: Mapped[int] = mapped_column(Integer, default=DOC_STATUS_PROCESSING, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    status_detail: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

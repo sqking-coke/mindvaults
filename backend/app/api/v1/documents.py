@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +53,30 @@ async def list_docs(
     result: DocumentListResponse = await list_documents(db, page, page_size, kb_id)
     return success_response(result.model_dump())
 
+
+@router.get("/documents/watch")
+async def watch_docs(
+    kb_id: int = Query(..., description="知识库 ID"),
+    timeout: int = Query(60, ge=5, le=300, description="长轮询超时秒数"),
+    db: AsyncSession = Depends(get_db),
+):
+    """长轮询文档状态变更。有未完成文档时等待状态变化，无变化则超时返回。"""
+    deadline = asyncio.get_event_loop().time() + timeout
+
+    while True:
+        result: DocumentListResponse = await list_documents(db, 1, 50, kb_id)
+        pending = [d for d in result.items if d.status in (0, 1)]  # FAILED or PROCESSING
+
+        if not pending:
+            # 没有待处理的文档，立即返回
+            return success_response(result.model_dump())
+
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            # 超时，返回当前状态
+            return success_response(result.model_dump())
+
+        await asyncio.sleep(min(2.0, remaining))
 
 @router.get("/documents/{doc_id}")
 async def get_doc(doc_id: int, db: AsyncSession = Depends(get_db)):

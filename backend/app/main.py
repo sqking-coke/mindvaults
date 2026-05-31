@@ -22,6 +22,12 @@ from app.core.middleware import limiter, request_log_middleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"mindvaults starting (env={settings.APP_ENV})")
+    # 恢复上次异常中断的摄入任务
+    from app.core.database import AsyncSessionLocal
+    from app.services.ingestion_service import recover_stuck_documents
+    recovered = await recover_stuck_documents(AsyncSessionLocal)
+    if recovered:
+        logger.info(f"lifespan_recovered_stuck_documents count={recovered}")
     yield
     await close_redis()
     await engine.dispose()

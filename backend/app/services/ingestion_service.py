@@ -1,4 +1,6 @@
 import asyncio
+import time
+from datetime import datetime, timezone
 
 from loguru import logger
 from sqlalchemy import select
@@ -10,7 +12,7 @@ from app.models.config import KbConfig
 from app.utils.logger import log_event
 from app.services.parser_service import parse_document
 from app.services.chunking_service import chunk_pages
-from app.services.embedding_service import embed_text
+from app.services.embedding_service import embed_batch
 
 
 async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_path: str) -> None:
@@ -24,6 +26,7 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
             log_event("doc_not_found", doc_id=doc_id)
             return
         doc.status = DOC_STATUS_PROCESSING
+        doc.status_detail = {"phase": "parsing", "started_at": datetime.now(timezone.utc).isoformat()}
         await db.flush()
 
         # 1. 解析文档，返回 [(text, page_number), ...]
@@ -46,22 +49,30 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
         if not chunks_with_pages:
             log_event("doc_chunking_empty", doc_id=doc_id)
             doc.status = DOC_STATUS_FAILED
+            doc.status_detail = {"phase": "failed", "error": "chunking produced no chunks", "at": datetime.now(timezone.utc).isoformat()}
             await db.commit()
             return
 
-        # 4. 向量化 + 入库（逐条处理，避免内存溢出）
-        for idx, (chunk_content, page_num) in enumerate(chunks_with_pages):
-            try:
-                embedding = await embed_text(chunk_content)
-            except Exception as exc:
-                logger.error(f"embedding_failed doc_id={doc_id} chunk={idx} error=\"{exc}\"")
-                continue
+        # 4. 批量向量化 + 入库
+        doc.status_detail = {"phase": "embedding", "total": len(chunks_with_pages), "started_at": datetime.now(timezone.utc).isoformat()}
+        await db.flush()
 
+        chunk_texts = [c[0] for c in chunks_with_pages]
+        try:
+            embeddings = await embed_batch(chunk_texts)
+        except Exception as exc:
+            logger.error(f"embedding_batch_failed doc_id={doc_id} chunks={len(chunk_texts)} error=\"{exc}\"")
+            doc.status = DOC_STATUS_FAILED
+            doc.status_detail = {"phase": "failed", "error": str(exc)[:500], "at": datetime.now(timezone.utc).isoformat()}
+            await db.commit()
+            return
+
+        for idx, (chunk_content, page_num) in enumerate(chunks_with_pages):
             chunk_record = KbChunk(
                 document_id=doc_id,
                 chunk_index=idx,
                 content=chunk_content,
-                embedding=embedding,
+                embedding=embeddings[idx],
                 page=page_num,
             )
             db.add(chunk_record)
@@ -71,37 +82,107 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
         # 5. 更新文档状态：完成
         doc.chunk_count = len(chunks_with_pages)
         doc.status = DOC_STATUS_COMPLETED
+        doc.status_detail = {"phase": "done", "chunks": len(chunks_with_pages), "finished_at": datetime.now(timezone.utc).isoformat()}
         await db.commit()
         log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=len(chunks_with_pages))
 
     except Exception as exc:
         logger.error(f"doc_ingestion_failed doc_id={doc_id} error=\"{exc}\"")
         await db.rollback()
-        # 尝试将文档标记为失败（需要新事务）
-        try:
-            doc = (
-                await db.execute(select(KbDocument).where(KbDocument.id == doc_id))
-            ).scalar_one_or_none()
-            if doc:
-                doc.status = DOC_STATUS_FAILED
-                await db.commit()
-        except Exception as inner_exc:
-            logger.error(f"doc_status_update_failed doc_id={doc_id} error=\"{inner_exc}\"")
+        raise  # 向上抛出，由 schedule_ingestion 的重试逻辑处理
+
+
+# 并发控制：最多 3 个文档同时摄入，防止撑爆 DB 连接池 (pool_size=10)
+_ingestion_semaphore = asyncio.Semaphore(3)
+
+# 任务注册表：doc_id → asyncio.Task，支持去重/取消/可观测
+_task_registry: dict[int, asyncio.Task] = {}
+
+# 重试配置
+_MAX_RETRIES = 3
+_RETRY_DELAYS = [2, 5, 15]  # 指数退避
+
+
+def get_pending_count() -> int:
+    """返回当前正在摄入的文档数。"""
+    return len(_task_registry)
 
 
 def schedule_ingestion(
     db_factory, doc_id: int, doc_type: str, file_path: str
 ) -> None:
-    """在后台异步调度文档摄入，不阻塞上传响应。"""
-    async def _run():
-        async with db_factory() as session:
-            await ingest_document(session, doc_id, doc_type, file_path)
+    """在后台异步调度文档摄入，不阻塞上传响应。Semaphore 控制并发数为 3。
+    同一文档不重复调度。失败自动重试 3 次（指数退避）。"""
+    if doc_id in _task_registry and not _task_registry[doc_id].done():
+        logger.warning(f"ingestion_already_scheduled doc_id={doc_id}")
+        return
+
+    async def _run_with_retry():
+        last_error = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                async with _ingestion_semaphore:
+                    async with db_factory() as session:
+                        await ingest_document(session, doc_id, doc_type, file_path)
+                logger.info(f"ingestion_completed doc_id={doc_id} attempt={attempt + 1}")
+                return  # 成功，退出
+            except asyncio.CancelledError:
+                logger.warning(f"ingestion_cancelled doc_id={doc_id}")
+                raise  # 不重试取消
+            except Exception as exc:
+                last_error = exc
+                if attempt < _MAX_RETRIES - 1:
+                    delay = _RETRY_DELAYS[attempt]
+                    logger.warning(f"ingestion_retry doc_id={doc_id} attempt={attempt + 1}/{_MAX_RETRIES} delay={delay}s error=\"{exc}\"")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"ingestion_all_retries_exhausted doc_id={doc_id} error=\"{exc}\"")
+
+        # 所有重试耗尽 → 标记 FAILED
+        try:
+            async with db_factory() as session:
+                doc = await session.get(KbDocument, doc_id)
+                if doc and doc.status == DOC_STATUS_PROCESSING:
+                    doc.status = DOC_STATUS_FAILED
+                    doc.status_detail = {
+                        "phase": "failed",
+                        "error": str(last_error)[:500] if last_error else "unknown",
+                        "retries": _MAX_RETRIES,
+                        "at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await session.commit()
+                    logger.info(f"doc_marked_failed_after_retries doc_id={doc_id}")
+        except Exception as mark_exc:
+            logger.error(f"doc_mark_failed_error doc_id={doc_id} error=\"{mark_exc}\"")
 
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_run())
+        task = loop.create_task(_run_with_retry())
+        _task_registry[doc_id] = task
+        task.add_done_callback(lambda t: _task_registry.pop(doc_id, None))
+        logger.info(f"ingestion_scheduled doc_id={doc_id} active={len(_task_registry)}")
     except RuntimeError:
         logger.warning("ingestion_skipped_no_event_loop")
+
+
+async def recover_stuck_documents(db_factory) -> int:
+    """服务启动时扫描状态为 PROCESSING 的文档，重新调度摄入。返回恢复数量。"""
+    from app.models.document import DOC_STATUS_PROCESSING
+    async with db_factory() as session:
+        result = await session.execute(
+            select(KbDocument).where(KbDocument.status == DOC_STATUS_PROCESSING)
+        )
+        stuck = result.scalars().all()
+
+    for doc in stuck:
+        if doc.file_path:
+            schedule_ingestion(db_factory, doc.id, doc.doc_type, doc.file_path)
+        else:
+            logger.warning(f"recover_skipped_no_path doc_id={doc.id}")
+
+    if stuck:
+        logger.info(f"recovered_stuck_documents count={len(stuck)}")
+    return len(stuck)
 
 
 async def _get_or_create_config(db: AsyncSession, kb_id: int) -> KbConfig:

@@ -136,6 +136,20 @@ export async function fetchDocuments(
   };
 }
 
+export async function watchDocuments(
+  kbId?: number,
+  timeout = 60,
+  signal?: AbortSignal,
+): Promise<{ docs: DocumentRecord[]; total: number }> {
+  let path = `/api/v1/kb/documents/watch?timeout=${timeout}`;
+  if (kbId !== undefined) path += `&kb_id=${kbId}`;
+  const data = await api.get<{ items: KbDocument[]; total: number }>(path, signal);
+  return {
+    docs: data.items.map(kbDocumentToDocRecord),
+    total: data.total,
+  };
+}
+
 export async function uploadDocuments(
   files: File[],
   kbId: number,
