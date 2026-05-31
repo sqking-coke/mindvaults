@@ -117,8 +117,16 @@ async def get_kb_overview(db: AsyncSession) -> OverviewResponse:
     )
     qa_stats = (await db.execute(qa_stats_query)).one()
 
+    # 文件存储占用（直接从 file_size 列聚合）
+    storage_result = await db.execute(
+        select(func.coalesce(func.sum(KbDocument.file_size), 0)).where(
+            KbDocument.deleted_at.is_(None)
+        )
+    )
+    total_storage = storage_result.scalar_one()
+
     logger.info(
-        f"知识库概览: docs={doc_stats.total} chunks={total_chunks} qa={qa_stats.total}"
+        f"知识库概览: docs={doc_stats.total} chunks={total_chunks} qa={qa_stats.total} storage={total_storage}"
     )
 
     return OverviewResponse(
@@ -129,7 +137,7 @@ async def get_kb_overview(db: AsyncSession) -> OverviewResponse:
         total_chunks=total_chunks,
         total_qa_records=qa_stats.total,
         avg_similarity=0.0,
-        total_storage_bytes=0,
+        total_storage_bytes=total_storage,
         last_ingestion_at=doc_stats.last_ingestion_at,
         last_qa_at=qa_stats.last_qa_at,
     )

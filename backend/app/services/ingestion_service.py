@@ -24,7 +24,14 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
         ).scalar_one_or_none()
         if doc is None:
             log_event("doc_not_found", doc_id=doc_id)
-            return
+            # 尝试从独立会话补救：可能刚提交但尚未可见
+            await db.rollback()
+            await asyncio.sleep(1.0)
+            doc2 = (await db.execute(select(KbDocument).where(KbDocument.id == doc_id))).scalar_one_or_none()
+            if doc2 is None:
+                logger.error(f"doc_not_found_after_retry doc_id={doc_id}")
+                return
+            doc = doc2
         doc.status = DOC_STATUS_PROCESSING
         doc.status_detail = {"phase": "parsing", "started_at": datetime.now(timezone.utc).isoformat()}
         await db.flush()

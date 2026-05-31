@@ -109,6 +109,28 @@ async def toggle_doc_status(
     return success_response(result.model_dump())
 
 
+@router.get("/documents/{doc_id}/content")
+async def get_doc_content(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """返回文档原始文本内容，用于前端预览。"""
+    from pathlib import Path
+    import os
+    result = await get_document(db, doc_id)
+    file_path = Path(result.file_path)
+    if not file_path.exists():
+        from app.core.exceptions import DocNotFoundError
+        raise DocNotFoundError(f"文件未找到: {result.file_path}")
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        content = file_path.read_text(errors="replace")
+    return success_response({
+        "doc_name": result.doc_name,
+        "doc_type": result.doc_type,
+        "content": content,
+        "chars": len(content),
+    })
+
+
 @router.post("/documents/{doc_id}/reindex")
 @limiter.limit("10/minute")
 async def reindex_doc(

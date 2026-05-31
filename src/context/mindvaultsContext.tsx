@@ -211,8 +211,9 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [activeKbId]);
 
-  // 切换 KB 时重新加载文档列表
+  // 切换 KB / 返回列表时刷新 KB 列表和文档列表
   useEffect(() => {
+    fetchKnowledgeBases().then(setKnowledgeBases).catch(() => {});
     const kbId = Number(activeKbId);
     if (!kbId || kbId <= 0) return;
     fetchDocuments(1, 50, kbId).then((r) => setDocuments(r.docs)).catch(() => {});
@@ -579,6 +580,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const withoutTemp = prev.filter((d) => !d.id.startsWith("doc-temp-"));
             return [...uploaded, ...withoutTemp];
           });
+          // 刷新 KB 列表，同步 doc_count
+          fetchKnowledgeBases().then(setKnowledgeBases).catch(() => {});
         })
         .catch(() => {
           setDocuments((prev) =>
@@ -653,7 +656,10 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const numericId = Number(docId);
       if (!isNaN(numericId)) {
         apiDeleteDocument(numericId)
-          .then(() => showToast("文档已删除"))
+          .then(() => {
+            showToast("文档已删除");
+            fetchKnowledgeBases().then(setKnowledgeBases).catch(() => {});
+          })
           .catch(() => {
             showToast("删除失败，已恢复", "error");
             fetchDocuments(1, 50)

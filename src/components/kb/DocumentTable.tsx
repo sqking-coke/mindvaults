@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
+import type { DocumentRecord } from "@/types/api";
 import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import {
   FileText,
@@ -19,9 +20,10 @@ import ChunkList from "./ChunkList";
 
 interface DocumentTableProps {
   opsMode?: boolean;
+  opsDocuments?: DocumentRecord[];  // ops 模式外部传入的文档列表
 }
 
-export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
+export default function DocumentTable({ opsMode = false, opsDocuments }: DocumentTableProps) {
   const { 
     documents, 
     activeKbId, 
@@ -30,14 +32,36 @@ export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
     deleteDocument 
   } = usemindvaults();
 
-  // Filter docs for active KB
-  const activeKbDocs = opsMode
-    ? documents  // 运维模式展示全部 KB 的文档
-    : documents.filter(doc => doc.kbId === activeKbId);
+  // Filter docs for active KB — ops 模式优先使用外部传入的列表
+  const activeKbDocs = opsDocuments
+    ? opsDocuments
+    : opsMode
+      ? documents
+      : documents.filter(doc => doc.kbId === activeKbId);
 
   // State to track expanded document for viewing/managing chunks
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ name: string; content: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  const handlePreview = async (docId: string, docName: string) => {
+    setPreviewLoading(true);
+    setPreviewDoc({ name: docName, content: "" });
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/kb/documents/${docId}/content`);
+      const json = await res.json();
+      if (json.code === 0 && json.data) {
+        setPreviewDoc({ name: json.data.doc_name, content: json.data.content });
+      }
+    } catch {
+      setPreviewDoc(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   const handleToggleStatus = async (docId: string, currentStatus: string) => {
     const nextStatus = currentStatus === "disabled" ? "enabled" : "disabled";
@@ -130,7 +154,13 @@ export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
                           <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
                           <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="truncate" title={doc.name}>{doc.name}</span>
+                              <button
+                            onClick={(e) => { e.stopPropagation(); handlePreview(doc.id, doc.name); }}
+                            className="truncate text-left hover:text-indigo-600 transition-colors focus:outline-none"
+                            title="点击预览原文"
+                          >
+                            {doc.name}
+                          </button>
                               {isObsidian && (
                                 <span className="shrink-0 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-150 px-1 py-0.2 rounded" title="Obsidian Vault 导入">
                                   Obsidian
@@ -290,6 +320,41 @@ export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
           </table>
         )}
       </div>
+
+      {/* 原文预览弹窗 */}
+      {previewDoc && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in"
+          onClick={() => setPreviewDoc(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-3xl w-full mx-4 max-h-[80vh] flex flex-col animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-slate-800 text-sm truncate pr-4">{previewDoc.name}</h3>
+              <button
+                onClick={() => setPreviewDoc(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {previewLoading ? (
+                <div className="flex items-center justify-center py-16 text-slate-400 gap-2">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span className="text-xs">加载中...</span>
+                </div>
+              ) : (
+                <pre className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap font-sans select-text">
+                  {previewDoc.content}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 删除确认弹窗 */}
       <ConfirmDialog

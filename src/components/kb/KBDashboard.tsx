@@ -196,7 +196,11 @@ export default function KBDashboard() {
                     <span className="h-5 w-[1px] bg-slate-100" />
                     <span className="flex flex-col">
                       <b className="text-slate-800 font-semibold font-mono text-xs">
-                        {(kb.char_count || 0) > 10000 ? `${((kb.char_count || 0) / 10000).toFixed(1)}w` : (kb.char_count || 0).toLocaleString()}
+                        {kb.char_count > 0
+                          ? (kb.char_count > 10000 ? `${(kb.char_count / 10000).toFixed(1)}w` : kb.char_count.toLocaleString())
+                          : kb.doc_count > 0
+                            ? <span className="text-amber-500 text-[10px]">解析中...</span>
+                            : "0"}
                       </b>
                       <span>提取字符</span>
                     </span>

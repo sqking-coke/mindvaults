@@ -241,6 +241,7 @@ async def import_vault(
                 file_path=str(dest_path),
                 status=DOC_STATUS_PROCESSING,
                 chunk_count=0,
+                file_size=dest_path.stat().st_size,
             )
             db.add(doc)
             await db.flush()
@@ -340,6 +341,7 @@ async def import_vault_files(
                 file_path=str(dest_path),
                 status=DOC_STATUS_PROCESSING,
                 chunk_count=0,
+                file_size=dest_path.stat().st_size,
             )
             db.add(doc)
             await db.flush()
