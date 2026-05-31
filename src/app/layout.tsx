@@ -4,8 +4,12 @@ import { mindvaultsProvider as MindVaultsProvider } from "@/context/mindvaultsCo
 import Toast from "@/components/shared/Toast";
 
 export const metadata: Metadata = {
-  title: "mindvaults - 本地私有化知识库",
-  description: "本地私有化知识库问答 Agent UI/UX 原型",
+  title: "mindvaults v0.0.1 — 本地私有化 RAG 知识库",
+  description:
+    "开源、隐私至上的本地 RAG 知识库。支持本地 Ollama / 云端 API 双模式，PDF/Markdown/Word 文档导入，pgvector 向量检索，SSE 流式对话，引用溯源。你的数据，永远归你所有。",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({

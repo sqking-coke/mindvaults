@@ -95,19 +95,19 @@ export default function FrequentQuestions({ questions, isLoading }: FrequentQues
                 );
                 if (item.rank === 1) {
                   rankBadge = (
-                    <span className="h-5.5 w-5.5 rounded-full bg-amber-500 text-white font-black text-xs flex items-center justify-center shadow-sm shadow-amber-500/20">
+                    <span className="size-5 rounded-full bg-amber-500 text-white font-black text-[10px] flex items-center justify-center shadow-sm shadow-amber-500/20">
                       1
                     </span>
                   );
                 } else if (item.rank === 2) {
                   rankBadge = (
-                    <span className="h-5.5 w-5.5 rounded-full bg-slate-300 text-slate-800 font-black text-xs flex items-center justify-center shadow-sm shadow-slate-300/20">
+                    <span className="size-5 rounded-full bg-slate-300 text-slate-800 font-black text-[10px] flex items-center justify-center shadow-sm shadow-slate-300/20">
                       2
                     </span>
                   );
                 } else if (item.rank === 3) {
                   rankBadge = (
-                    <span className="h-5.5 w-5.5 rounded-full bg-amber-700/80 text-white font-black text-xs flex items-center justify-center shadow-sm shadow-amber-700/20">
+                    <span className="size-5 rounded-full bg-amber-700/80 text-white font-black text-[10px] flex items-center justify-center shadow-sm shadow-amber-700/20">
                       3
                     </span>
                   );

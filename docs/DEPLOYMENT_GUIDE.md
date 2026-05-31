@@ -1,6 +1,6 @@
 # mindvaults 代码部署操作指南
 
-> **适用版本**: v1.0.0 | **最后更新**: 2026-05-30
+> **适用版本**: v0.0.1 | **最后更新**: 2026-05-31
 > **目标读者**: 运维工程师、后端开发、DevOps
 
 ---
@@ -152,6 +152,8 @@ mindvaults/
 
 Docker Compose 是最推荐的部署方式，镜像预配置，无需手动安装运行时依赖。
 
+**双模式切换**：通过 `--profile` 控制。默认启动 5 容器（含 Redis 缓存），加 `--profile full` 启用 Ollama 本地推理。
+
 #### 步骤 1：克隆仓库
 
 ```bash
@@ -173,14 +175,12 @@ cp .env.example .env
 
 #### 步骤 3：启动服务
 
-根据部署模式选择：
-
 ```bash
-# 轻量模式（跳过 Ollama，LLM/Embedding 走云端 API）
-docker compose up -d nginx backend frontend db redis
-
-# 本地全栈模式（一键启动全部 6 个服务）
+# 默认模式（5 容器，LLM/Embedding 走云端 API）
 docker compose up -d
+
+# 全栈模式（6 容器，Ollama 本地推理，数据完全不出网）
+docker compose --profile full up -d
 ```
 
 #### 步骤 4：等待服务就绪
@@ -193,9 +193,9 @@ docker compose ps
 docker compose logs -f backend
 ```
 
-后端 `entrypoint.sh` 会依次等待 PostgreSQL、Redis、Ollama 就绪后自动执行数据库迁移。
+后端 `entrypoint.sh` 会依次等待 PostgreSQL、Redis 就绪后自动执行数据库迁移。
 
-#### 步骤 5：本地全栈模式 — 拉取模型（仅首次）
+#### 步骤 5：全栈模式 — 拉取模型（仅首次）
 
 ```bash
 # 拉取 LLM 模型
@@ -210,7 +210,7 @@ docker exec -it $(docker compose ps -q ollama) ollama pull BAAI/bge-large-zh-v1.
 ```bash
 # 健康检查
 curl http://localhost/api/v1/health
-# 预期输出: {"status":"healthy","version":"0.1.0"}
+# 预期响应: {"code":0,"status":"healthy"}
 
 # 浏览器访问
 open http://localhost
@@ -218,7 +218,7 @@ open http://localhost
 
 ---
 
-### 3.2 轻量模式（云端 API）
+### 3.2 默认模式（云端 API + Redis 缓存）
 
 **适用场景**：2核4G 低配服务器、演示环境、不希望在本地运行大模型。
 
@@ -229,7 +229,7 @@ open http://localhost
 git clone git@github.com:sqking-coke/mindvaults.git && cd mindvaults
 cp .env.example .env
 
-# 2. 编辑 .env，切换到云端 API
+# 2. 编辑 .env，配置云端 API Key（默认已指向 DeepSeek）
 # LLM_PROVIDER=openai
 # LLM_BASE_URL=https://api.deepseek.com/v1
 # LLM_MODEL=deepseek-chat
@@ -240,8 +240,8 @@ cp .env.example .env
 # EMBEDDING_DIM=1536
 # EMBEDDING_API_KEY=sk-your-deepseek-api-key
 
-# 3. 启动（跳过 ollama 服务）
-docker compose up -d nginx backend frontend db redis
+# 3. 启动
+docker compose up -d
 
 # 4. 验证
 curl http://localhost/api/v1/health
@@ -253,7 +253,7 @@ curl http://localhost/api/v1/health
 
 ---
 
-### 3.3 本地全栈模式（Ollama）
+### 3.3 全栈模式（Ollama 本地推理）
 
 **适用场景**：数据完全不出内网，有 16GB+ 内存的服务器。
 
@@ -263,10 +263,16 @@ curl http://localhost/api/v1/health
 # 1. 克隆 + 配置
 git clone git@github.com:sqking-coke/mindvaults.git && cd mindvaults
 cp .env.example .env
-# .env 保持默认配置即可（LLM_PROVIDER=ollama, EMBEDDING_PROVIDER=ollama）
+# 编辑 .env，切换到本地模式：
+# LLM_PROVIDER=ollama
+# LLM_BASE_URL=http://ollama:11434
+# LLM_MODEL=qwen3
+# EMBEDDING_PROVIDER=ollama
+# EMBEDDING_MODEL=BAAI/bge-large-zh-v1.5
+# EMBEDDING_DIM=1024
 
 # 2. 一键启动
-docker compose up -d
+docker compose --profile full up -d
 
 # 3. 等待 Ollama 就绪后拉取模型（仅首次）
 docker exec -it $(docker compose ps -q ollama) ollama pull qwen3
@@ -380,9 +386,9 @@ cp .env.example .env
 vim .env
 
 # 7. 启动服务
-docker compose up -d     # 全栈
-# 或轻量模式:
-# docker compose up -d nginx backend frontend db redis
+docker compose up -d     # 默认模式（5 容器）
+# 或全栈模式:
+# docker compose --profile full up -d
 ```
 
 ### 4.2 环境变量详解
@@ -791,8 +797,8 @@ docker stats
 
 ```bash
 # === 启动与停止 ===
-docker compose up -d                         # 启动全部服务
-docker compose up -d nginx backend frontend db redis  # 轻量模式启动
+docker compose up -d                         # 默认模式启动（5 容器）
+docker compose --profile full up -d          # 全栈模式启动（6 容器）
 docker compose down                          # 停止并删除容器
 docker compose down -v                       # 停止并删除容器+卷（⚠️ 数据丢失）
 docker compose restart backend               # 重启单个服务

@@ -24,7 +24,7 @@
 
 ---
 
-> mindvaults 是一款支持**本地私有化 + 云端 API 双模式**的 RAG 知识库问答系统。提供两套部署方案：轻量模式（4 容器，~1.5GB，LLM/Embedding 走云端 API）和全栈模式（6 容器，Ollama 本地推理，数据完全不出网）。基于 FastAPI + Next.js 14 + PostgreSQL/pgvector + Redis 构建。
+> mindvaults 是一款支持**本地私有化 + 云端 API 双模式**的 RAG 知识库问答系统。默认 5 容器部署（含 Redis 缓存，LLM/Embedding 走云端 API），加 `--profile full` 启用 Ollama 本地推理实现完全离线运行。基于 FastAPI + Next.js 14 + PostgreSQL/pgvector + Redis 构建。
 
 
 ## 🚀 核心特性
@@ -61,7 +61,7 @@
 - **API Key 鉴权**：`Authorization: Bearer <API_KEY>` 保护所有 API 端点
 - **限流控制**：问答接口 30次/分钟，上传接口 10次/分钟（可配置）
 - **日志轮转**：loguru 结构化日志，每天午夜轮转，保留 30 天
-- **Docker Compose 一键部署**：前端 + 后端 + PostgreSQL + Redis + Ollama + Nginx
+- **Docker Compose 一键部署**：前端 + 后端 + PostgreSQL + Redis + Nginx（默认 5 容器），`--profile full` 加 Ollama
 
 ---
 
@@ -77,7 +77,7 @@
 | **LLM** | Ollama (qwen3) / 云端 API | 支持 ollama/openai provider 切换，可选用 DeepSeek/OpenAI/通义千问 |
 | **Embedding** | BGE-large-zh-v1.5 / 云端 API | 支持 ollama/openai provider 切换，自动适配向量维度 |
 | **文档解析** | PyPDF2, python-docx, markdown | 多格式文档内容提取 |
-| **部署** | Docker Compose + Nginx | 轻量 4 容器 / 全栈 6 容器 双模式 |
+| **部署** | Docker Compose + Nginx | 默认 5 容器 / `--profile full` 6 容器 |
 
 ---
 
@@ -186,10 +186,16 @@ graph TD
 
 ## 🐳 部署指南
 
-mindvaults 提供**轻量（云端 API）** 和 **本地全栈（Ollama）** 双模式部署，并支持开发环境手动构建。
+```bash
+# 默认模式（5 容器，LLM 走云端 API）
+docker compose up -d
+
+# 全栈模式（6 容器，Ollama 本地推理，数据不出网）
+docker compose --profile full up -d
+```
 
 > 📖 完整部署文档请参阅 **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**，涵盖：
-> - Docker Compose 一键部署（轻量 / 全栈）
+> - Docker Compose Profiles 双模式部署
 > - 24 项环境变量详解 + 4 种 Provider 组合方案
 > - 云服务器初始化 + Nginx HTTPS + 安全加固清单
 > - 8 个典型故障排查场景

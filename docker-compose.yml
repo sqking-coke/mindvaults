@@ -1,5 +1,15 @@
 version: '3.8'
 
+# =============================================================================
+# mindvaults Docker Compose (双模式)
+#
+# 默认模式（5 容器，~1.5 GB，LLM 走云端）：
+#   docker compose up -d
+#
+# 全栈模式（6 容器，Ollama 本地推理，数据完全不出网）：
+#   docker compose --profile full up -d
+# =============================================================================
+
 services:
   frontend:
     build:
@@ -23,25 +33,23 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://mindvaults:mindvaults@db:5432/mindvaults
-      - REDIS_URL=redis://redis:6379
-      # LLM / Embedding 配置通过 .env 文件注入，支持 ollama / openai 切换
-      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
-      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434}
-      - LLM_MODEL=${LLM_MODEL:-qwen3}
+      # LLM / Embedding — 通过 .env 或下方默认值配置
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-BAAI/bge-large-zh-v1.5}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-1024}
-      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-}
-      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.3}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-ada-002}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-1536}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-${LLM_API_KEY}}
+      # Redis：全栈模式自动启用，轻量模式不启用（无 Redis 时自动降级直查 PG）
+      - REDIS_URL=redis://redis:6379
+      - REDIS_CACHE_ENABLED=${REDIS_CACHE_ENABLED:-true}
     volumes:
       - uploads_data:/app/uploads
       - ./logs:/app/logs
-      # ── Obsidian Vault 导入挂载（可选）────────────────────────────
-      # 如需导入本地 Obsidian Vault 目录，取消下方注释并将左侧宿主机
-      # 路径替换为你的实际 Vault 目录。容器内导入时填 /vaults/obsidian
-      # 作为路径即可。:ro 表示只读挂载，保护源文件不被修改。
-      # - /host/path/to/obsidian-vault:/vaults/obsidian:ro
     depends_on:
       db:
         condition: service_healthy
@@ -49,6 +57,7 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+        required: false
     restart: unless-stopped
 
   db:
@@ -66,6 +75,19 @@ services:
       retries: 5
     restart: unless-stopped
 
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # ── 以下服务仅在全栈模式下启动 ──
+
   redis:
     image: redis:7-alpine
     healthcheck:
@@ -77,6 +99,8 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    profiles:
+      - full
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
@@ -85,17 +109,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - frontend
-      - backend
     restart: unless-stopped
 
 volumes:

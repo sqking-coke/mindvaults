@@ -8,15 +8,23 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "v0.0.6",
+    version: "v0.0.1",
     date: "2026-05-31",
-    title: "企业级规范制定 & 更新日志",
+    title: "🎉 首个公开测试版 — 架构重构",
     description:
-      "企业级日志规范（毫秒级时间戳、traceId 全链路追踪、sessionId、请求/响应体 JSON 日志、敏感字段脱敏、慢操作阈值）。统一异常处理规范（三层异常体系、18 个错误码、全局异常处理器）。新增独立更新日志页面，首页模型选择器固定化展示。",
+      "Sidebar 提升至共享 Route Group Layout，路由切换不再重新挂载，彻底解决导航闪烁与系统状态重复请求。设置面板从侧边栏 Modal 独立为 /settings 页面。统一品牌图标（logo.svg 应用于浏览器标签页与侧边栏），修正 landing page 工具描述与文件格式声明对齐实际实现。修复空会话删除失败、nav link 白框闪烁、重复 fetchSystemInfo 调用等问题。后端 CPU 信息启动时缓存、round_key 参数修正。",
+    tags: ["feature", "refactor", "fix"],
+  },
+  {
+    version: "v0.0.1",
+    date: "2026-05-31",
+    title: "规范制定 & 更新日志",
+    description:
+      "日志规范（毫秒级时间戳、traceId 全链路追踪、sessionId、请求/响应体 JSON 日志、敏感字段脱敏、慢操作阈值）。统一异常处理规范（三层异常体系、18 个错误码、全局异常处理器）。新增独立更新日志页面，首页模型选择器固定化展示。",
     tags: ["docs", "infra"],
   },
   {
-    version: "v0.0.5",
+    version: "v0.0.1",
     date: "2026-05-31",
     title: "推理 Redis 缓存 & 基础优化",
     description:
@@ -24,7 +32,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     tags: ["feature", "fix"],
   },
   {
-    version: "v0.0.4",
+    version: "v0.0.1",
     date: "2026-05-30",
     title: "多知识库支持 & 推理过程可视化",
     description:
@@ -32,7 +40,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     tags: ["feature", "refactor"],
   },
   {
-    version: "v0.0.3",
+    version: "v0.0.1",
     date: "2026-05-30",
     title: "大模型动态切换 & Obsidian Vault 导入",
     description:
@@ -40,7 +48,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     tags: ["feature", "refactor"],
   },
   {
-    version: "v0.0.2",
+    version: "v0.0.1",
     date: "2026-05-29",
     title: "P1 产品化增强",
     description:

@@ -256,10 +256,7 @@ export default function Home() {
         <div className="lp-nav-container">
           {/* Logo */}
           <Link href="/" className="lp-logo-link">
-            <svg className="lp-logo-polygon" viewBox="0 0 24 24">
-              <polygon points="12,2 14.5,8.5 21,11 14.5,13.5 12,20 9.5,13.5 3,11 9.5,8.5" fill="none" stroke="#60a5fa" strokeWidth="2" />
-              <circle cx="12" cy="11" r="2.5" fill="#60a5fa" />
-            </svg>
+            <img src="/logo.svg" alt="mindvaults" className="logo-glow" style={{ width: "32px", height: "32px" }} />
             <span className="lp-logo-text">
               mind<span>vaults</span>
             </span>
@@ -320,16 +317,16 @@ export default function Home() {
             <p>支持自由切换的主流模型和工具</p>
             <div className="lp-tool-grid">
               <div className="lp-tool-item">
-                <span className="lp-tool-dot"></span> Ollama
+                <span className="lp-tool-dot"></span> Ollama 本地推理
               </div>
               <div className="lp-tool-item">
-                <span className="lp-tool-dot"></span> DeepSeek R1
+                <span className="lp-tool-dot"></span> OpenAI 兼容 API
               </div>
               <div className="lp-tool-item">
-                <span className="lp-tool-dot"></span> pgvector
+                <span className="lp-tool-dot"></span> pgvector HNSW
               </div>
               <div className="lp-tool-item">
-                <span className="lp-tool-dot"></span> Local PDF / OCR
+                <span className="lp-tool-dot"></span> BGE Embedding
               </div>
             </div>
           </div>
@@ -1261,7 +1258,7 @@ export default function Home() {
               </button>
               <div className="faq-content" style={{ maxHeight: activeFaq === 1 ? "200px" : "0" }}>
                 <p>
-                  我们内置了极其鲁棒的多模态解析引擎，开箱即支持：PDF（内置文本流解析与自动双栏检测）、Markdown、Word（.docx）、Excel（.xlsx）、PPT（.pptx）、TXT、JSON 及 HTML。对于包含图片或非结构化扫描版 PDF，系统会自动调用本地轻量 OCR 进行文本抽取，无需依赖外部云服务。
+                  我们内置了健壮的多格式解析引擎，开箱支持：PDF（文本层提取）、Markdown、Word（.docx）、TXT 及 CSV 等纯文本文档格式。系统基于 PyPDF2 + python-docx + markdown 本地解析管道，无需依赖外部云服务。
                 </p>
               </div>
             </div>
@@ -1368,10 +1365,7 @@ export default function Home() {
             {/* Brand / description column */}
             <div className="footer-brand-col">
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#ffffff", fontWeight: 800 }}>
-                <svg className="lp-logo-polygon" viewBox="0 0 24 24" style={{ width: "22px", height: "22px" }}>
-                  <polygon points="12,2 14.5,8.5 21,11 14.5,13.5 12,20 9.5,13.5 3,11 9.5,8.5" fill="none" stroke="#60a5fa" strokeWidth="2" />
-                  <circle cx="12" cy="11" r="2.5" fill="#60a5fa" />
-                </svg>
+                <img src="/logo.svg" alt="mindvaults" className="logo-glow" style={{ width: "28px", height: "28px" }} />
                 <span style={{ fontSize: "1.2rem", letterSpacing: "-0.02em" }}>mindvaults</span>
               </div>
               <p className="footer-brand-desc">
@@ -1421,12 +1415,21 @@ export default function Home() {
             <div className="footer-links-col">
               <span className="footer-col-title">关于</span>
               <ul className="footer-links-list">
-                <li className="footer-link-item"><a href="#features">数据主权</a></li>
-                <li className="footer-link-item"><a href="#features">隐私安全</a></li>
                 <li className="footer-link-item"><a href="https://github.com/sqking-coke/mindvaults" target="_blank" rel="noopener noreferrer">Github 源码</a></li>
-                <li className="footer-link-item"><a href="#opensource">联系团队</a></li>
+                <li className="footer-link-item"><a href="mailto:wsq0621@gmail.com">team@mindvaults.app</a></li>
               </ul>
             </div>
+
+            {/* 公众号 */}
+            <div className="footer-links-col">
+              <span className="footer-col-title">公众号</span>
+              <img
+                src="/qrcode-wechat.jpg"
+                alt="微信公众号"
+                className="w-20 h-20 rounded-xl border border-slate-700 mt-2"
+              />
+            </div>
+
           </div>
 
           <hr className="footer-divider-line" />

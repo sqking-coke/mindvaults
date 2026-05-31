@@ -15,7 +15,6 @@ import {
   X,
   Cpu,
   HardDrive,
-  Layers,
   ChevronLeft,
   Menu,
   Wrench,
@@ -152,19 +151,15 @@ export default function Sidebar() {
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800 select-none shrink-0">
         {!isCollapsed && (
           <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Layers className="h-5 w-5 text-white" />
-            </div>
+            <img src="/logo.svg" alt="mindvaults" width={36} height={36} className="h-9 w-9 rounded-xl shadow-lg shadow-indigo-500/20" />
             <div>
               <span className="font-bold text-base bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">mindvaults</span>
-              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v1.0.0 PROTOTYPE</span>
+              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v0.0.1</span>
             </div>
           </div>
         )}
         {isCollapsed && (
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-600 flex items-center justify-center mx-auto shadow-md">
-            <Layers className="h-5 w-5 text-white" />
-          </div>
+          <img src="/logo.svg" alt="mindvaults" width={36} height={36} className="h-9 w-9 rounded-xl mx-auto shadow-md" />
         )}
         <button 
           onClick={() => setIsCollapsed(!isCollapsed)}

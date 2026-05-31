@@ -83,3 +83,13 @@ html, body {
 .animate-cursor-blink {
   animation: cursor-blink 0.8s step-end infinite;
 }
+
+/* Logo breathing glow — shared across landing page & app sidebar */
+@keyframes logo-glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.35)); }
+  50%      { filter: drop-shadow(0 0 14px rgba(96, 165, 250, 0.65)) drop-shadow(0 0 24px rgba(34, 211, 238, 0.3)); }
+}
+
+.logo-glow {
+  animation: logo-glow-pulse 3s ease-in-out infinite;
+}
