@@ -1,20 +1,43 @@
+# ============================================================
+# mindvaults .gitignore
+# ============================================================
+
+# --- Node / Frontend ---
 node_modules/
 .next/
 out/
 dist/
+*.tsbuildinfo
 
+# --- Python / Backend ---
 backend/venv/
 backend/uploads/
 backend/logs/
 backend/.pytest_cache/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
 
+# --- Agent / IDE ---
 .superpowers/
 .claude/
 .multica/
+CLAUDE.md
 
+# --- Environment ---
 .env
 .env.local
-*.log
+.env.*.local
+
+# --- OS ---
 .DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+*~
+
+# --- Docker ---
+docker-compose.override.yml
