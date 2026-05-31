@@ -33,8 +33,8 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
             await db.commit()
             return
 
-        # 2. 读取配置
-        config = await _get_or_create_config(db)
+        # 2. 读取配置（从文档所属 KB）
+        config = await _get_or_create_config(db, doc.kb_id)
         # 3. 逐页切片，保留页码信息
         chunks_with_pages = await chunk_pages(
             pages,
@@ -105,12 +105,12 @@ def schedule_ingestion(
         logger.warning("没有运行中的 event loop，跳过后台摄入调度")
 
 
-async def _get_or_create_config(db: AsyncSession) -> KbConfig:
+async def _get_or_create_config(db: AsyncSession, kb_id: int) -> KbConfig:
     row = (
-        await db.execute(select(KbConfig).where(KbConfig.id == 1))
+        await db.execute(select(KbConfig).where(KbConfig.kb_id == kb_id))
     ).scalar_one_or_none()
     if row is None:
-        row = KbConfig()
+        row = KbConfig(kb_id=kb_id)
         db.add(row)
         await db.flush()
     return row

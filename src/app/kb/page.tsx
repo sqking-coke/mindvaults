@@ -40,7 +40,7 @@ export default function KBPage() {
   };
 
   // Find active KB
-  const activeKb = knowledgeBases.find(kb => kb.id === activeKbId);
+  const activeKb = knowledgeBases.find(kb => String(kb.id) === activeKbId);
 
   return (
     <div className="h-full flex bg-slate-50 overflow-hidden font-sans">

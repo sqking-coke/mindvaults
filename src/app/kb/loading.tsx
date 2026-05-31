@@ -17,7 +17,7 @@ export default function KBLoading() {
     activeKbId 
   } = usemindvaults();
 
-  const activeKb = knowledgeBases.find(kb => kb.id === activeKbId);
+  const activeKb = knowledgeBases.find(kb => String(kb.id) === activeKbId);
 
   return (
     <div className="h-full flex bg-slate-50 overflow-hidden font-sans">

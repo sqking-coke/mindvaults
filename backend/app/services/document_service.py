@@ -67,6 +67,7 @@ async def upload_documents(
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     documents: list[DocumentListItem] = []
+    ingestion_queue: list[tuple[int, str, str]] = []  # (doc_id, ext, file_path)
 
     for file in files:
         ext = _validate_file(file)
@@ -105,11 +106,16 @@ async def upload_documents(
             )
         )
 
-        schedule_ingestion(AsyncSessionLocal, doc.id, ext, str(dest_path))
+        ingestion_queue.append((doc.id, ext, str(dest_path)))
 
         logger.info(f"文档上传成功: id={doc.id} name={doc.doc_name} kb_id={kb_id}")
 
     await db.commit()
+
+    # commit 之后再调度摄入（避免新 session 查不到未提交的文档）
+    for doc_id, ext, path in ingestion_queue:
+        schedule_ingestion(AsyncSessionLocal, doc_id, ext, path)
+
     return DocumentUploadResponse(documents=documents, total=len(documents))
 
 

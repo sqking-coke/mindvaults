@@ -148,7 +148,7 @@ export default function KBDashboard() {
         ) : (
           knowledgeBases.map((kb) => {
             // Get document statistics for this KB
-            const kbDocs = documents.filter(d => d.kbId === kb.id);
+            const kbDocs = documents.filter(d => d.kbId === String(kb.id));
             const parsedDocs = kbDocs.filter(d => d.status === "success");
             const totalChars = parsedDocs.reduce((acc, curr) => acc + curr.chars, 0);
 
@@ -157,11 +157,11 @@ export default function KBDashboard() {
                 key={kb.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => setActiveKbId(kb.id)}
+                onClick={() => setActiveKbId(String(kb.id))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    setActiveKbId(kb.id);
+                    setActiveKbId(String(kb.id));
                   }
                 }}
                 aria-label={`进入知识库: ${kb.name}`}
@@ -174,7 +174,7 @@ export default function KBDashboard() {
                       <Database className="h-5 w-5" />
                     </div>
                     <button
-                      onClick={(e) => handleDeleteKb(kb.id, e)}
+                      onClick={(e) => handleDeleteKb(String(kb.id), e)}
                       onKeyDown={(e) => e.stopPropagation()}
                       className="text-slate-400 hover:text-red-500 p-1 rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-red-400"
                       title="删除此知识库挂载"
