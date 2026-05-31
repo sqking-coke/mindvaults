@@ -25,6 +25,7 @@ async def get_config_by_kb(db: AsyncSession, kb_id: int) -> KbConfig:
         row = KbConfig(kb_id=kb_id)
         db.add(row)
         await db.flush()
+        await db.commit()  # 提交默认配置行，避免未提交事务残留
     return row
 
 

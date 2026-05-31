@@ -13,6 +13,7 @@ import type {
   VaultImportResponse,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
+import { formatTime } from "@/utils/date";
 import {
   getDefaultKnowledgeBase,
   fetchDocuments,
@@ -73,6 +74,8 @@ interface mindvaultsContextType {
   loadSystemConfig: () => Promise<void>;
   updateSystemConfig: (config: SystemConfigRequest) => Promise<boolean>;
   loadOllamaModels: () => Promise<void>;
+  toast: { message: string; type: "success" | "error" } | null;
+  showToast: (message: string, type?: "success" | "error") => void;
 }
 
 const mindvaultsContext = createContext<mindvaultsContextType | undefined>(undefined);
@@ -93,13 +96,15 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [isKbLoading, setIsKbLoading] = useState(true);
-  const [activeKbId, setActiveKbId] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("mv_active_kb_id");
-    }
-    return null;
-  });
+  const [activeKbId, setActiveKbId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+
+  // --- Toast notification ---
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   // --- Dynamic LLM and System configuration ---
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
@@ -258,25 +263,25 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let cancelled = false;
     (async () => {
       try {
-        const [hist, thinkingSteps] = await Promise.all([
-          fetchChatHistory(activeConversationId),
-          fetchThinkingSteps(activeConversationId).catch(() => []),
-        ]);
+        const hist = await fetchChatHistory(activeConversationId);
         if (cancelled) return;
         const msgs: Message[] = [];
-        hist.items.forEach((r, i) => {
-          const { user, assistant } = historyRecordToMessage(r, i);
-          // 将 Redis 中的推理步骤附加到最后一条 assistant 消息
-          if (i === hist.items.length - 1 && thinkingSteps.length > 0) {
-            assistant.thinkingSteps = thinkingSteps.map((s) => ({
-              text: s.message,
-              phase: s.phase,
-              elapsed_ms: s.elapsed_ms,
-              similarity: s.similarity,
-            }));
+        for (const r of hist.items) {
+          const { user, assistant } = historyRecordToMessage(r, hist.items.indexOf(r));
+          // 按轮次从 Redis 加载推理步骤
+          if (assistant.roundKey) {
+            try {
+              const steps = await fetchThinkingSteps(activeConversationId, assistant.roundKey);
+              assistant.thinkingSteps = steps.map((s) => ({
+                text: s.message,
+                phase: s.phase,
+                elapsed_ms: s.elapsed_ms,
+                similarity: s.similarity,
+              }));
+            } catch {}
           }
           msgs.push(user, assistant);
-        });
+        }
         setConversations((prev) =>
           prev.map((c) => (c.id === activeConversationId ? { ...c, messages: msgs } : c)),
         );
@@ -311,9 +316,12 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       // 同步删除后端数据
-      apiDeleteSession(id).catch((err) =>
-        console.error("Failed to delete session on server:", err),
-      );
+      apiDeleteSession(id)
+        .then(() => showToast("对话已删除"))
+        .catch((err) => {
+          console.error("Failed to delete session on server:", err);
+          showToast("删除失败，请重试", "error");
+        });
     },
     [activeConversationId],
   );
@@ -342,7 +350,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setActiveConversationId(sessionId);
       }
 
-      const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const timestamp = formatTime();
       const userMsg: Message = {
         id: `msg-user-${Date.now()}`,
         role: "user",
@@ -428,13 +436,14 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const citations: Citation[] = (event.data.ref_chunks || []).map((rc, i) =>
                 refChunkToCitation(rc, i),
               );
+              const roundKey = (event.data as any).round_key as string | undefined;
               setConversations((prev) =>
                 prev.map((c) =>
                   c.id === sessionId
                     ? {
                         ...c,
                         messages: c.messages.map((m) =>
-                          m.id === assistantId ? { ...m, citations } : m,
+                          m.id === assistantId ? { ...m, citations, roundKey } : m,
                         ),
                       }
                     : c,
@@ -448,7 +457,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               let displayContent: string;
               if (errorCode === 4001) {
                 displayContent =
-                  "📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识库中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。";
+                  "📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。";
               } else {
                 displayContent = `⚠️ ${errorMessage}`;
               }
@@ -506,8 +515,10 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (id === "1") return; // 不能删除默认 KB
       try {
         await apiDeleteKnowledgeBase(Number(id));
+        showToast("知识库已删除");
       } catch (err) {
         console.error("Failed to delete KB on server:", err);
+        showToast("删除失败，请重试", "error");
       }
       setKnowledgeBases((prev) => prev.filter((kb) => String(kb.id) !== id));
       setDocuments((prev) => prev.filter((doc) => doc.kbId !== id));
@@ -635,12 +646,14 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const numericId = Number(docId);
       if (!isNaN(numericId)) {
-        apiDeleteDocument(numericId).catch(() => {
-          // restore on failure? or just refresh
-          fetchDocuments(1, 50)
-            .then((result) => setDocuments(result.docs))
-            .catch(() => {});
-        });
+        apiDeleteDocument(numericId)
+          .then(() => showToast("文档已删除"))
+          .catch(() => {
+            showToast("删除失败，已恢复", "error");
+            fetchDocuments(1, 50)
+              .then((result) => setDocuments(result.docs))
+              .catch(() => {});
+          });
       }
     },
     [documents],
@@ -768,6 +781,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         loadSystemConfig,
         updateSystemConfig: updateSystemConfigHandler,
         loadOllamaModels,
+        toast,
+        showToast,
       }}
     >
       {children}

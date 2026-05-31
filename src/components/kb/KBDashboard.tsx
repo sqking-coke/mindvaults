@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import { formatDateShort } from "@/utils/date";
 import {
   Database,
@@ -22,6 +23,7 @@ export default function KBDashboard() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newKbName, setNewKbName] = useState("");
   const [newKbDesc, setNewKbDesc] = useState("");
+  const [deleteKbConfirm, setDeleteKbConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const newKbInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,11 +43,9 @@ export default function KBDashboard() {
     setShowCreateForm(false);
   };
 
-  const handleDeleteKb = (id: string, e: React.MouseEvent) => {
+  const handleDeleteKb = (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("确定要删除此知识库吗？这将连同其中的所有文档文件一并删除，该操作不可恢复！")) {
-      deleteKnowledgeBase(id);
-    }
+    setDeleteKbConfirm({ id, name });
   };
 
   return (
@@ -168,7 +168,7 @@ export default function KBDashboard() {
                       <Database className="h-5 w-5" />
                     </div>
                     <button
-                      onClick={(e) => handleDeleteKb(String(kb.id), e)}
+                      onClick={(e) => handleDeleteKb(String(kb.id), kb.name, e)}
                       onKeyDown={(e) => e.stopPropagation()}
                       className="text-slate-400 hover:text-red-500 p-1 rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-red-400"
                       title="删除此知识库挂载"
@@ -213,6 +213,13 @@ export default function KBDashboard() {
         )}
       </div>
 
+      <ConfirmDialog
+        open={!!deleteKbConfirm}
+        onClose={() => setDeleteKbConfirm(null)}
+        onConfirm={() => deleteKbConfirm && deleteKnowledgeBase(deleteKbConfirm.id)}
+        title="确认删除知识库"
+        message={<>将永久删除知识库 <b className="text-slate-700">{deleteKbConfirm?.name}</b> 及其中的所有文档文件，该操作不可恢复。</>}
+      />
     </div>
   );
 }

@@ -97,6 +97,7 @@ export async function uploadVaultFiles<T>(
 }
 
 export type SSEChatEvent =
+  | { type: "start"; data: { status: string } }
   | { type: "progress"; data: SSEProgressEvent }
   | { type: "token"; data: SSETokenEvent }
   | { type: "done"; data: SSEDoneEvent }
@@ -107,11 +108,15 @@ export async function* streamChat(
   body: unknown,
   signal?: AbortSignal,
 ): AsyncGenerator<SSEChatEvent> {
+  // 2 分钟超时保护，防止连接泄漏拖死页面
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), 120_000);
+
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal,
+    signal: timeoutController.signal,
   });
 
   if (!res.ok) {
@@ -155,6 +160,8 @@ export async function* streamChat(
       }
     }
   } finally {
+    clearTimeout(timeoutId);
+    try { await reader.cancel(); } catch {}
     reader.releaseLock();
   }
 }

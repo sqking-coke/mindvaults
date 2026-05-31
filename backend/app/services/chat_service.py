@@ -1,5 +1,7 @@
+import asyncio
 import json
 import time
+import uuid
 from collections.abc import AsyncGenerator
 
 from loguru import logger
@@ -74,17 +76,17 @@ def _build_context(chunks: list[RefChunk]) -> str:
     return "\n\n".join(parts)
 
 
-async def _push_thinking(session_id: str, step: dict) -> None:
-    """将推理步骤写入 Redis LIST（非阻塞，Redis 不可用时静默跳过）。"""
+async def _push_thinking(session_id: str, round_key: str, step: dict) -> None:
+    """将推理步骤写入 Redis LIST，按轮次隔离（非阻塞，Redis 不可用时静默跳过）。"""
     try:
         from app.core.redis import get_redis
         from app.config import settings
         redis = await get_redis()
-        key = f"mv:thinking:{session_id}"
-        await redis.lpush(key, json.dumps(step))
-        await redis.expire(key, settings.THINKING_TTL_SECONDS)
+        key = f"mv:thinking:{session_id}:{round_key}"
+        await asyncio.wait_for(redis.lpush(key, json.dumps(step)), timeout=2.0)
+        await asyncio.wait_for(redis.expire(key, settings.THINKING_TTL_SECONDS), timeout=2.0)
     except Exception:
-        pass
+        logger.warning(f"redis_push_thinking_failed session_id={session_id} round_key={round_key} phase={step.get('phase')}")
 
 
 async def chat_stream(
@@ -92,6 +94,10 @@ async def chat_stream(
 ) -> AsyncGenerator[tuple[str, str], None]:
     """RAG 流式问答主流程，yield (event_type, json_data) 元组。"""
     t_start = time.time()
+    round_key = uuid.uuid4().hex[:8]  # 本轮唯一标识，隔离 Redis 推理步骤
+
+    # 先发送 start 事件，让客户端立即知道流已建立，防止阻塞操作导致前端一直"等待中"
+    yield ("start", json.dumps({"status": "processing"}))
 
     # — 0. 提前获取配置 —
     from app.services.retrieval_service import get_config
@@ -101,12 +107,23 @@ async def chat_stream(
     threshold = cfg.similarity_threshold if cfg.similarity_threshold is not None else 0.5
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
 
+    logger.info(
+        f"rag_chat_start session_id={req.session_id} kb_id={req.kb_id or 'auto'} "
+        f"provider={provider} model={model} question_len={len(req.question)}"
+    )
+
     # — 1. 会话校验/创建 —
-    session = (
-        await db.execute(
-            select(KbSession).where(KbSession.session_id == req.session_id)
-        )
-    ).scalar_one_or_none()
+    try:
+        session = (
+            await db.execute(
+                select(KbSession).where(KbSession.session_id == req.session_id)
+            )
+        ).scalar_one_or_none()
+    except Exception as exc:
+        logger.error(f"rag_session_lookup_failed session_id={req.session_id} error=\"{exc}\"")
+        await db.rollback()
+        yield ("error", json.dumps({"code": 9001, "message": "数据库查询失败，请稍后重试"}))
+        return
 
     # 确定 kb_id：请求 > 会话 > 默认 1
     kb_id = req.kb_id or (session.kb_id if session else 1)
@@ -119,40 +136,53 @@ async def chat_stream(
         )
         db.add(session)
         await db.flush()
+        await db.commit()  # 立即提交会话创建，释放锁，后续 LLM 失败不影响会话存在
 
-    await _push_thinking(req.session_id, {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0})
-    yield (
-        "progress",
-        json.dumps({"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}),
-    )
+    step = {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}
+    await _push_thinking(req.session_id, round_key, step)
+    yield ("progress", json.dumps(step))
 
     # — 2. Embedding —
-    await _push_thinking(req.session_id, {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)})
-    yield (
-        "progress",
-        json.dumps(
-            {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)}
-        ),
-    )
+    step = {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)}
+    await _push_thinking(req.session_id, round_key, step)
+    yield ("progress", json.dumps(step))
 
     try:
         query_embedding = await embed_text(req.question)
     except Exception as exc:
+        logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
+        record = KbQaRecord(
+            session_id=session.id,
+            question=req.question,
+            answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
+            ref_chunks=[],
+            model_name=settings.LLM_MODEL,
+            round_key=round_key,
+        )
+        db.add(record)
+        await db.commit()
         yield ("error", json.dumps({"code": 5002, "message": str(exc)}))
         return
 
     # — 3. 检索 —
-    await _push_thinking(req.session_id, {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)})
-    yield (
-        "progress",
-        json.dumps(
-            {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)}
-        ),
-    )
+    step = {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)}
+    await _push_thinking(req.session_id, round_key, step)
+    yield ("progress", json.dumps(step))
 
     chunks = await retrieve_chunks(db, query_embedding, kb_id=kb_id)
 
     if not chunks:
+        # 落库：即使未检索到文档，也保存问答记录，确保对话历史完整
+        record = KbQaRecord(
+            session_id=session.id,
+            question=req.question,
+            answer="📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。",
+            ref_chunks=[],
+            model_name=settings.LLM_MODEL,
+            round_key=round_key,
+        )
+        db.add(record)
+        await db.commit()
         yield (
             "error",
             json.dumps({"code": 4001, "message": "未找到与问题相关的文档内容"}),
@@ -166,23 +196,14 @@ async def chat_stream(
         doc_groups[c.doc_name].append(c)
 
     doc_names = list(doc_groups.keys())
-    await _push_thinking(req.session_id, {
+    step = {
         "phase": "matching",
         "message": f"查找到 {len(chunks)} 个相关文档分块，来自 {len(doc_names)} 份文档：",
         "elapsed_ms": int((time.time() - t_start) * 1000),
         "similarity": round(chunks[0].similarity, 4),
-    })
-    yield (
-        "progress",
-        json.dumps(
-            {
-                "phase": "matching",
-                "message": f"查找到 {len(chunks)} 个相关文档分块，来自 {len(doc_names)} 份文档：",
-                "elapsed_ms": int((time.time() - t_start) * 1000),
-                "similarity": round(chunks[0].similarity, 4),
-            }
-        ),
-    )
+    }
+    await _push_thinking(req.session_id, round_key, step)
+    yield ("progress", json.dumps(step))
 
     # 逐文档展示匹配详情
     for idx, (doc_name, doc_chunks) in enumerate(doc_groups.items(), 1):
@@ -195,17 +216,13 @@ async def chat_stream(
                 "elapsed_ms": int((time.time() - t_start) * 1000),
                 "similarity": round(c.similarity, 4),
             }
-            await _push_thinking(req.session_id, step)
+            await _push_thinking(req.session_id, round_key, step)
             yield ("progress", json.dumps(step))
 
     # — 4. LLM 生成 —
-    await _push_thinking(req.session_id, {"phase": "generating", "message": f"正在调用大模型 {provider_label}: {model} 进行推理生成...", "elapsed_ms": int((time.time() - t_start) * 1000)})
-    yield (
-        "progress",
-        json.dumps(
-            {"phase": "generating", "message": f"正在调用大模型 {provider_label}: {model} 进行推理生成...", "elapsed_ms": int((time.time() - t_start) * 1000)}
-        ),
-    )
+    step = {"phase": "generating", "message": f"正在调用大模型 {provider_label}: {model} 进行推理生成...", "elapsed_ms": int((time.time() - t_start) * 1000)}
+    await _push_thinking(req.session_id, round_key, step)
+    yield ("progress", json.dumps(step))
 
     context = _build_context(chunks)
     history = await _build_history(db, session.id)
@@ -217,6 +234,18 @@ async def chat_stream(
             full_answer += token
             yield ("token", json.dumps({"content": token}))
     except Exception as exc:
+        logger.error(f"rag_llm_failed session_id={req.session_id} provider={provider} model={model} error=\"{exc}\"")
+        # 落库：保存已生成的部分内容 + 错误信息
+        record = KbQaRecord(
+            session_id=session.id,
+            question=req.question,
+            answer=full_answer + f"\n\n[生成中断] {exc}",
+            ref_chunks=[c.model_dump() for c in chunks],
+            model_name=settings.LLM_MODEL,
+            round_key=round_key,
+        )
+        db.add(record)
+        await db.commit()
         yield ("error", json.dumps({"code": 5001, "message": str(exc)}))
         return
 
@@ -227,6 +256,7 @@ async def chat_stream(
         answer=full_answer,
         ref_chunks=[c.model_dump() for c in chunks],
         model_name=settings.LLM_MODEL,
+        thinking_steps=thinking_steps,
     )
     db.add(record)
 
@@ -235,6 +265,12 @@ async def chat_stream(
         session.title = req.question[:30] + ("..." if len(req.question) > 30 else "")
 
     await db.commit()
+
+    elapsed_ms = int((time.time() - t_start) * 1000)
+    logger.info(
+        f"rag_chat_done session_id={req.session_id} answer_len={len(full_answer)} "
+        f"chunks={len(chunks)} elapsed_ms={elapsed_ms}"
+    )
 
     yield (
         "done",
@@ -249,7 +285,8 @@ async def chat_stream(
                         "page": c.page,
                     }
                     for c in chunks
-                ]
+                ],
+                "round_key": round_key,
             }
         ),
     )
@@ -294,6 +331,7 @@ async def get_chat_history(
             answer=row.answer,
             ref_chunks=[RefChunk(**c) for c in (row.ref_chunks or [])],
             model_name=row.model_name,
+            round_key=row.round_key,
             created_at=row.created_at,
         )
         for row in rows
@@ -310,6 +348,8 @@ async def list_sessions(db: AsyncSession) -> SessionsListResponse:
             select(KbSession).order_by(KbSession.updated_at.desc())
         )
     ).scalars().all()
+
+    logger.debug(f"sessions_listed total={len(rows)}")
 
     return SessionsListResponse(
         sessions=[
@@ -341,8 +381,23 @@ async def delete_session(db: AsyncSession, session_id: str) -> None:
     await db.execute(
         delete(KbQaRecord).where(KbQaRecord.session_id == session.id)
     )
+    # 先记数据，再删
+    qa_count = (
+        await db.execute(
+            select(func.count()).select_from(KbQaRecord).where(KbQaRecord.session_id == session.id)
+        )
+    ).scalar_one()
+    session_title = session.title
+
+    await db.execute(
+        delete(KbQaRecord).where(KbQaRecord.session_id == session.id)
+    )
     await db.delete(session)
     await db.commit()
+
+    logger.info(
+        f"session_deleted session_id={session_id} title=\"{session_title}\" qa_records={qa_count}"
+    )
 
     # 清理 Redis 推理缓存
     try:
@@ -350,4 +405,4 @@ async def delete_session(db: AsyncSession, session_id: str) -> None:
         redis = await get_redis()
         await redis.delete(f"mv:thinking:{session_id}")
     except Exception:
-        pass
+        logger.warning(f"redis_thinking_cleanup_failed session_id={session_id}")

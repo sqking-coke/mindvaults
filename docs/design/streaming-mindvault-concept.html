@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MindVault 流式方案 v1</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f8fafc; color: #1e293b;
+    padding: 20px; min-height: 100vh;
+  }
+  .container { max-width: 720px; margin:0 auto; }
+  .header {
+    text-align: center; margin-bottom: 20px;
+    padding: 16px; background: #fff; border-radius: 16px;
+    border: 1px solid #e2e8f0;
+  }
+  .header h1 { font-size: 1.2rem; color: #0f172a; }
+  .header p { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+
+  .controls {
+    display: flex; gap: 8px; justify-content: center; margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .controls button {
+    padding: 8px 18px; border-radius: 10px; border: 1px solid #e2e8f0;
+    background: #fff; color: #475569; cursor: pointer;
+    font-size: 0.78rem; font-weight: 500;
+    transition: all 0.15s;
+  }
+  .controls button:hover { border-color: #6366f1; color: #6366f1; }
+  .controls button.primary { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+  .controls button.primary:hover { background: #4338ca; }
+
+  .chat-area {
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 16px; padding: 20px;
+    min-height: 300px;
+  }
+
+  /* Messages */
+  .msg { display: flex; gap: 10px; margin-bottom: 18px; }
+  .msg.user { justify-content: flex-end; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem;
+  }
+  .avatar.bot { background: linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; }
+  .avatar.user { background: #e2e8f0; border: 1px solid #cbd5e1; color:#64748b; }
+  .bubble {
+    max-width: 85%; padding: 10px 14px; border-radius: 14px;
+    font-size: 0.85rem; line-height: 1.7;
+  }
+  .bubble.user {
+    background: #4f46e5; color: #e0e7ff; border-top-right-radius: 4px;
+  }
+  .bubble.assistant {
+    background: #fff; border: 1px solid #e2e8f0;
+    border-top-left-radius: 4px; color: #334155;
+  }
+
+  /* Pipeline container */
+  .pipeline {
+    border: 1px solid #e2e8f0; border-radius: 10px;
+    margin-bottom: 10px; overflow: hidden;
+    background: #fafafa;
+  }
+  .pipeline-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 12px; background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.7rem; font-weight: 600; color: #6366f1;
+  }
+  .pipeline-body { padding: 8px 12px; }
+
+  .pipe-step {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; margin-bottom: 2px;
+    border-radius: 6px; font-size: 0.73rem;
+    transition: all 0.35s ease;
+    opacity: 0; transform: translateX(-6px);
+  }
+  .pipe-step.visible {
+    opacity: 1; transform: translateX(0);
+  }
+  .pipe-step.active {
+    background: #fffbeb; border: 1px solid #fcd34d;
+  }
+  .pipe-step.done {
+    background: #f0fdf4; border: 1px solid #bbf7d0;
+  }
+  .pipe-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: #cbd5e1; transition: all 0.3s;
+  }
+  .pipe-dot.active { background: #f59e0b; animation: pulse 1s infinite; }
+  .pipe-dot.done { background: #22c55e; }
+  @keyframes pulse { 50% { transform: scale(1.6); opacity: 0.4; } }
+
+  .pipe-label { font-weight: 500; color: #334155; min-width: 56px; }
+  .pipe-detail { color: #94a3b8; font-size: 0.68rem; flex:1; }
+  .pipe-meta { font-size: 0.62rem; color: #94a3b8; margin-left: auto; }
+  .pipe-meta.success { color: #16a34a; }
+
+  /* Cursor */
+  .cursor {
+    display: inline-block; width: 2px; height: 1.1em;
+    background: #6366f1; margin-left: 1px; vertical-align: text-bottom;
+    animation: blink 0.8s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Citation tags inline */
+  .cite-tag {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 20px; border-radius: 5px;
+    background: #ede9fe; color: #6d28d9;
+    font-size: 0.62rem; font-weight: 700; margin: 0 1px;
+    cursor: pointer; vertical-align: middle;
+  }
+  .cite-tag:hover { background: #ddd6fe; }
+
+  /* Citation source cards */
+  .cite-cards { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .cite-card {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 8px;
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    font-size: 0.68rem; cursor: pointer;
+    animation: fadeUp 0.4s ease both;
+    transition: border-color 0.15s;
+  }
+  .cite-card:hover { border-color: #a5b4fc; }
+  @keyframes fadeUp {
+    from { opacity:0; transform: translateY(6px); }
+    to { opacity:1; transform: translateY(0); }
+  }
+
+  .note {
+    margin-top: 16px; padding: 12px; background: #fffbeb;
+    border: 1px solid #fde68a; border-radius: 10px;
+    font-size: 0.72rem; color: #92400e;
+  }
+  .note strong { color: #78350f; }
+
+  /* Comparison row */
+  .comparison {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 12px; margin-top: 20px;
+  }
+  .comp-card {
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 14px;
+  }
+  .comp-card h3 { font-size: 0.78rem; color: #0f172a; margin-bottom: 6px; }
+  .comp-card .code {
+    font-family: 'SF Mono','Fira Code',monospace;
+    font-size: 0.65rem; background: #f1f5f9;
+    padding: 6px 8px; border-radius: 6px;
+    color: #64748b; line-height: 1.5;
+  }
+  .comp-card .code del { color: #dc2626; text-decoration: line-through; }
+  .comp-card .code ins { color: #16a34a; text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>🧪 MindVault 流式对话整合方案 v1</h1>
+    <p>推理过程：逐条流式 Pipeline（方案E） + 内容输出：真实逐 Token（方案A）</p>
+  </div>
+
+  <div class="controls">
+    <button class="primary" onclick="replay()">▶ 完整重播</button>
+    <button onclick="replayPipelineOnly()">只看 Pipeline</button>
+    <button onclick="replayAnswerOnly()">只看答案流式</button>
+  </div>
+
+  <div class="chat-area" id="chat-area">
+    <!-- Dynamically filled -->
+  </div>
+
+  <div class="comparison">
+    <div class="comp-card">
+      <h3>❌ 当前实现</h3>
+      <div class="code">
+        <del>// 25ms 打字机缓冲层</del><br>
+        <del>setInterval(() => typewriterPos++, 25)</del><br>
+        <del>msg.content.slice(0, typewriterPos)</del><br>
+        <del>// 推理过程：折叠面板，全部一次性展示</del><br>
+        <del>collapsedThinkings 控制显隐</del>
+      </div>
+    </div>
+    <div class="comp-card">
+      <h3>✅ 新方案</h3>
+      <div class="code">
+        <ins>// SSE progress → 逐条追加 pipeStep</ins><br>
+        <ins>thinkingSteps.push({phase,text,elapsed})</ins><br>
+        <ins>// SSE token → 直接追加 content</ins><br>
+        <ins>m.content += tokenData</ins><br>
+        <ins>// 光标闪烁：isGenerating && isLast</ins><br>
+        <ins>{isGenerating && &lt;Cursor /&gt;}</ins>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PIPELINE_DATA = [
+  { phase:'intent', icon:'🎯', label:'意图识别', detail:'分析提问意图 → 判定为"技术原理查询"', elapsed: 118 },
+  { phase:'retrieval', icon:'🔍', label:'向量检索', detail:'BGE-M3 编码查询 → HNSW 扫描 12 个文档', elapsed: 347 },
+  { phase:'rerank', icon:'📊', label:'语义重排', detail:'BCE Reranker 精排 → 锁定 Top-5 候选片段', elapsed: 182 },
+  { phase:'generating', icon:'✍️', label:'LLM 生成', detail:'基于 Top-3 上下文片段生成回答', elapsed: null },
+];
+
+const ANSWER_TOKENS = (() => {
+  const text = `向量检索（Vector Retrieval）的核心原理是将非结构化文本通过 Embedding 模型映射到高维向量空间，然后通过近似最近邻（ANN）算法快速找到语义最相似的向量。
+
+具体分为三个步骤：
+
+1. **Embedding 嵌入**：使用 BGE-M3 模型将文档和查询分别编码为 1024 维稠密向量，捕捉深层语义信息；
+2. **索引构建**：通过 HNSW 分层可导航小世界图结构，将百万级向量组织为多层跳表索引，实现 O(log N) 检索复杂度；
+3. **相似度计算**：对查询向量与候选文档向量做余弦相似度计算，返回 Top-K 最相关结果。
+
+最后通过 BCE Reranker 交叉编码器对初检结果进行精细语义重排，将最相关的片段作为 LLM 生成的上下文注入，确保回答的准确性和可溯源性。`;
+
+  const tokens = [];
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (/[一-鿿]/.test(ch)) { tokens.push(ch); i++; }
+    else if (/[a-zA-Z0-9]/.test(ch)) {
+      let w = '';
+      while (i < text.length && /[a-zA-Z0-9]/.test(text[i])) { w += text[i]; i++; }
+      tokens.push(w);
+    } else {
+      let p = '';
+      while (i < text.length && !/[一-鿿a-zA-Z0-9]/.test(text[i])) { p += text[i]; i++; }
+      tokens.push(p);
+    }
+  }
+  return tokens;
+})();
+
+const CITATIONS = [
+  { idx:1, doc:'向量检索技术白皮书 v2.3', page:4, score:94 },
+  { idx:2, doc:'BGE-M3 模型技术报告', page:12, score:87 },
+  { idx:3, doc:'HNSW 近似最近邻搜索算法', page:8, score:82 },
+];
+
+function buildChat() {
+  const area = document.getElementById('chat-area');
+  area.innerHTML = `
+    <div class="msg user">
+      <div class="bubble user">向量检索的核心原理是什么？</div>
+      <div class="avatar user">👤</div>
+    </div>
+    <div class="msg">
+      <div class="avatar bot">🤖</div>
+      <div>
+        <div class="pipeline" id="pipeline-box">
+          <div class="pipeline-header">
+            <span>🧠</span> RAG 推理过程
+            <span style="margin-left:auto;font-size:0.62rem;color:#94a3b8;" id="pipe-total-time"></span>
+          </div>
+          <div class="pipeline-body" id="pipeline-steps"></div>
+        </div>
+        <div class="bubble assistant" id="answer-bubble">
+          <span id="answer-text"></span><span class="cursor" id="cursor" style="display:none;"></span>
+        </div>
+        <div id="cite-cards" class="cite-cards"></div>
+      </div>
+    </div>
+  `;
+}
+
+async function replay() {
+  buildChat();
+  const startTime = Date.now();
+
+  // Phase 1: Pipeline steps appear one by one (streaming)
+  const stepsContainer = document.getElementById('pipeline-steps');
+  const totalTimeEl = document.getElementById('pipe-total-time');
+  const answerText = document.getElementById('answer-text');
+  const cursor = document.getElementById('cursor');
+  const citeCards = document.getElementById('cite-cards');
+
+  let stepEls = [];
+
+  for (const step of PIPELINE_DATA) {
+    // Create step element
+    const el = document.createElement('div');
+    el.className = 'pipe-step active';
+    el.innerHTML = `
+      <span style="font-size:0.8rem;">${step.icon}</span>
+      <span class="pipe-label">${step.label}</span>
+      <span class="pipe-detail">${step.detail}</span>
+      <span class="pipe-meta">⏳ 执行中...</span>
+    `;
+    stepsContainer.appendChild(el);
+    stepEls.push(el);
+
+    // Animate in
+    await sleep(80);
+    el.classList.add('visible');
+
+    // Wait the step's elapsed time (scaled down for demo)
+    const demoMs = step.elapsed ? Math.min(step.elapsed / 3, 400) : 100;
+    await sleep(demoMs);
+
+    // Mark as done
+    el.classList.remove('active');
+    el.classList.add('done');
+    el.querySelector('.pipe-meta').className = 'pipe-meta success';
+    el.querySelector('.pipe-meta').textContent = `✅ ${step.elapsed ? step.elapsed + 'ms' : '进行中...'}`;
+
+    // If this is the 'generating' step, DON'T mark as done yet — answer is about to stream
+    // And start showing answer text concurrently
+    if (step.phase === 'generating') {
+      // Keep as "active" style while answer streams
+      el.classList.remove('done');
+      el.classList.add('active');
+      el.querySelector('.pipe-meta').className = 'pipe-meta';
+      el.querySelector('.pipe-meta').textContent = '⏳ 流式输出中...';
+    }
+  }
+
+  // Phase 2: Answer streaming (concurrent with generating step)
+  cursor.style.display = 'inline-block';
+  let content = '';
+  const totalTokens = ANSWER_TOKENS.length;
+
+  for (let i = 0; i < ANSWER_TOKENS.length; i++) {
+    content += ANSWER_TOKENS[i];
+    answerText.innerHTML = content
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+    // Scroll if needed
+    answerText.parentElement.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    await sleep(10 + Math.random() * 20);
+  }
+
+  // Remove cursor and mark generating step as done
+  cursor.style.display = 'none';
+  const genStep = stepEls[stepEls.length - 1];
+  genStep.classList.remove('active');
+  genStep.classList.add('done');
+  genStep.querySelector('.pipe-meta').className = 'pipe-meta success';
+
+  const totalMs = Date.now() - startTime;
+  genStep.querySelector('.pipe-meta').textContent = `✅ ${totalMs}ms`;
+  totalTimeEl.textContent = `总耗时 ${totalMs}ms`;
+
+  // Phase 3: Citation tags inline + source cards
+  await sleep(200);
+  const citeHtml = '&nbsp;'.repeat(1) + CITATIONS.map(c =>
+    `<span class="cite-tag" title="${c.doc} · 第${c.page}页">[${c.idx}]</span>`
+  ).join('');
+  answerText.innerHTML += citeHtml;
+
+  await sleep(300);
+  for (const c of CITATIONS) {
+    const card = document.createElement('div');
+    card.className = 'cite-card';
+    card.style.animation = 'fadeUp 0.4s ease both';
+    card.style.animationDelay = '0ms';
+    card.innerHTML = `
+      <span class="cite-tag" style="font-size:0.6rem;">[${c.idx}]</span>
+      <div>
+        <div style="font-weight:500;font-size:0.7rem;">${c.doc}</div>
+        <div style="font-size:0.6rem;color:#94a3b8;">第 ${c.page} 页 · 相似度 ${c.score}%</div>
+      </div>
+    `;
+    citeCards.appendChild(card);
+    await sleep(200);
+  }
+}
+
+async function replayPipelineOnly() {
+  buildChat();
+  const stepsContainer = document.getElementById('pipeline-steps');
+  for (const step of PIPELINE_DATA) {
+    const el = document.createElement('div');
+    el.className = 'pipe-step active';
+    el.innerHTML = `
+      <span style="font-size:0.8rem;">${step.icon}</span>
+      <span class="pipe-label">${step.label}</span>
+      <span class="pipe-detail">${step.detail}</span>
+      <span class="pipe-meta">⏳ 执行中...</span>
+    `;
+    stepsContainer.appendChild(el);
+    await sleep(80);
+    el.classList.add('visible');
+    const demoMs = step.elapsed ? Math.min(step.elapsed / 3, 400) : 100;
+    await sleep(demoMs);
+    el.classList.remove('active');
+    el.classList.add('done');
+    el.querySelector('.pipe-meta').className = 'pipe-meta success';
+    el.querySelector('.pipe-meta').textContent = `✅ ${step.elapsed ? step.elapsed + 'ms' : '完成'}`;
+  }
+}
+
+async function replayAnswerOnly() {
+  buildChat();
+  // Hide pipeline
+  document.getElementById('pipeline-box').style.display = 'none';
+  const answerText = document.getElementById('answer-text');
+  const cursor = document.getElementById('cursor');
+  const citeCards = document.getElementById('cite-cards');
+  cursor.style.display = 'inline-block';
+  let content = '';
+  for (const token of ANSWER_TOKENS) {
+    content += token;
+    answerText.innerHTML = content
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+    await sleep(10 + Math.random() * 20);
+  }
+  cursor.style.display = 'none';
+  const citeHtml = '&nbsp;'.repeat(1) + CITATIONS.map(c =>
+    `<span class="cite-tag">[${c.idx}]</span>`
+  ).join('');
+  answerText.innerHTML += citeHtml;
+  for (const c of CITATIONS) {
+    const card = document.createElement('div');
+    card.className = 'cite-card';
+    card.style.animation = 'fadeUp 0.4s ease both';
+    card.innerHTML = `
+      <span class="cite-tag" style="font-size:0.6rem;">[${c.idx}]</span>
+      <div>
+        <div style="font-weight:500;font-size:0.7rem;">${c.doc}</div>
+        <div style="font-size:0.6rem;color:#94a3b8;">第 ${c.page} 页 · 相似度 ${c.score}%</div>
+      </div>
+    `;
+    citeCards.appendChild(card);
+    await sleep(200);
+  }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Auto play
+window.addEventListener('DOMContentLoaded', () => setTimeout(replay, 400));
+</script>
+
+</body>
+</html>

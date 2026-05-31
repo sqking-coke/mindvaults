@@ -120,8 +120,13 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
 async def get_ollama_models(db: AsyncSession = Depends(get_db)):
     """向本地 Ollama 守护进程拉取已载入的本地大模型 tags 列表。"""
     cfg = await get_config(db)
+    provider = cfg.llm_provider if cfg.llm_provider is not None else settings.LLM_PROVIDER
+
+    # 非 Ollama 模式无需查询
+    if provider != "ollama":
+        return success_response([])
+
     base_url = cfg.llm_base_url if cfg.llm_base_url is not None else settings.LLM_BASE_URL
-    
     if not base_url:
         return success_response([])
 
@@ -132,7 +137,7 @@ async def get_ollama_models(db: AsyncSession = Depends(get_db)):
         clean_base = clean_base[:-3]
 
     url = f"{clean_base}/api/tags"
-    
+
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(url)
@@ -148,8 +153,8 @@ async def get_ollama_models(db: AsyncSession = Depends(get_db)):
                         clean_models.append(m)
                 return success_response(sorted(list(set(clean_models))))
             else:
-                logger.warning(f"Ollama tags query returned HTTP {resp.status_code}")
+                logger.warning(f"ollama_tags_query_failed status={resp.status_code} url={url}")
     except Exception as e:
-        logger.warning(f"Failed to query Ollama models at {url}: {e}")
-        
+        logger.warning(f"ollama_tags_query_failed url={url} error=\"{e}\"")
+
     return success_response([])

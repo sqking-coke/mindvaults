@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { mindvaultsProvider as MindVaultsProvider } from "@/context/mindvaultsContext";
+import Toast from "@/components/shared/Toast";
 
 export const metadata: Metadata = {
   title: "mindvaults - 本地私有化知识库",
@@ -21,6 +22,7 @@ export default function RootLayout({
       <body className="h-full font-sans antialiased bg-slate-50 text-slate-900 selection:bg-indigo-100">
         <MindVaultsProvider>
           {children}
+          <Toast />
         </MindVaultsProvider>
       </body>
     </html>

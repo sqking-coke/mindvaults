@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { usemindvaults, Message, Citation } from "@/context/mindvaultsContext";
+import { usemindvaults, Citation } from "@/context/mindvaultsContext";
 import {
   Sparkles,
   ChevronRight,
@@ -44,10 +44,6 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
 
   const [collapsedThinkings, setCollapsedThinkings] = useState<Set<string>>(new Set());
 
-  // 打字机动效：生成中的最后一条 assistant 消息逐字展示
-  const typewriterRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [typewriterPos, setTypewriterPos] = useState(0);
-
   // 高频问题（Top-3 动态模板）
   const [frequentQuestions, setFrequentQuestions] = useState<Array<{ question: string; count: number }>>([]);
   useEffect(() => {
@@ -61,34 +57,6 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
   const lastAssistantMsg = activeConversation?.messages
     .filter(m => m.role === "assistant")
     .slice(-1)[0];
-
-  // 打字机动效控制器：只在 isGenerating 变化时启动/停止，不因内容增长重启
-  const fullLenRef = useRef(0);
-  useEffect(() => {
-    fullLenRef.current = lastAssistantMsg?.content?.length || 0;
-  });
-
-  useEffect(() => {
-    if (!isGenerating) {
-      setTypewriterPos(0);
-      if (typewriterRef.current) {
-        clearInterval(typewriterRef.current);
-        typewriterRef.current = null;
-      }
-      return;
-    }
-
-    typewriterRef.current = setInterval(() => {
-      setTypewriterPos(prev => {
-        if (prev >= fullLenRef.current) return prev;
-        return prev + 1;
-      });
-    }, 25);
-
-    return () => {
-      if (typewriterRef.current) clearInterval(typewriterRef.current);
-    };
-  }, [isGenerating]);
 
   // Auto-scroll to bottom of messages
   const lastMessageContentLength = activeConversation?.messages?.[activeConversation.messages.length - 1]?.content?.length || 0;
@@ -258,65 +226,84 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                           : "bg-white border border-slate-150 text-slate-800 rounded-tl-none leading-relaxed"
                       }`}
                     >
-                      {/* RAG 推理过程 Accordion */}
-                      {!isUser && msg.thinkingSteps && msg.thinkingSteps.length > 0 && (
-                        <div className="mb-3 bg-slate-50 rounded-lg border border-slate-100 overflow-hidden">
-                          <button
-                            onClick={() => {
-                              setCollapsedThinkings(prev => {
-                                const next = new Set(prev);
-                                if (next.has(msg.id)) next.delete(msg.id);
-                                else next.add(msg.id);
-                                return next;
-                              });
-                            }}
-                            className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-bold text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer select-none"
-                          >
-                            <span className="flex items-center gap-1.5">
-                              <Brain className="h-3.5 w-3.5" />
-                              RAG 推理过程
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              {collapsedThinkings.has(msg.id) ? "展开 ▼" : "收起 ▲"}
-                            </span>
-                          </button>
-                          {!collapsedThinkings.has(msg.id) && (
-                            <div className="px-3 pb-2.5 flex flex-col gap-1">
-                              {msg.thinkingSteps.map((step, idx) => (
-                                <div key={idx} className="flex items-center gap-2 text-[10px] leading-relaxed"
-                                  style={{
-                                    color: step.phase === "intent" ? "#6366f1"
-                                         : step.phase === "retrieval" ? "#2563eb"
-                                         : step.phase === "matching" ? "#059669"
-                                         : "#7c3aed"
-                                  }}
-                                >
-                                  <div className="w-1.5 h-1.5 rounded-full shrink-0"
-                                    style={{
-                                      background: step.phase === "intent" ? "#6366f1"
-                                                : step.phase === "retrieval" ? "#3b82f6"
-                                                : step.phase === "matching" ? "#10b981"
-                                                : "#8b5cf6"
-                                    }}
-                                  />
-                                  <span>{step.text}</span>
-                                  {step.elapsed_ms != null && (
-                                    <span className="text-[9px] text-slate-400 ml-auto shrink-0">{step.elapsed_ms}ms</span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {/* RAG 推理过程 — 紧凑单行流式渲染 */}
+                      {!isUser && msg.thinkingSteps && msg.thinkingSteps.length > 0 && (() => {
+                        const isLastAssistant = msg.id === lastAssistantMsg?.id;
+                        const allDone = !isGenerating || !isLastAssistant;
+                        return (
+                          <div className="mb-3 bg-slate-50 rounded-lg border border-slate-100 overflow-hidden">
+                            <button
+                              onClick={() => {
+                                setCollapsedThinkings(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(msg.id)) next.delete(msg.id);
+                                  else next.add(msg.id);
+                                  return next;
+                                });
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-bold text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer select-none"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <Brain className="h-3.5 w-3.5" />
+                                RAG 推理过程
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {collapsedThinkings.has(msg.id) ? "展开 ▼" : "收起 ▲"}
+                              </span>
+                            </button>
+                            {!collapsedThinkings.has(msg.id) && (
+                              <div className="px-3 pb-2.5 flex flex-col gap-1">
+                                {msg.thinkingSteps.map((step, idx) => {
+                                  const isLastStep = idx === msg.thinkingSteps!.length - 1;
+                                  const isActive = isLastStep && !allDone;
+                                  const phaseColor = step.phase === "intent" ? "#6366f1"
+                                                   : step.phase === "retrieval" ? "#2563eb"
+                                                   : step.phase === "matching" ? "#059669"
+                                                   : step.phase === "rerank" ? "#059669"
+                                                   : "#7c3aed";
+                                  return (
+                                    <div key={idx} className="flex items-center gap-2 text-[10px] leading-relaxed"
+                                      style={{
+                                        color: isActive ? phaseColor : "#94a3b8"
+                                      }}
+                                    >
+                                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-300 ${
+                                        isActive ? "animate-pulse" : ""
+                                      }`}
+                                        style={{
+                                          background: isActive ? phaseColor : "#cbd5e1"
+                                        }}
+                                      />
+                                      <span>{step.text}</span>
+                                      {step.elapsed_ms != null && !isActive && (
+                                        <span className="text-[9px] text-slate-400 ml-auto shrink-0">{step.elapsed_ms}ms</span>
+                                      )}
+                                      {isActive && (
+                                        <span className="text-[9px] text-slate-400 ml-auto shrink-0 animate-pulse">执行中...</span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Rich parsing and inline citation rendering */}
                       {isUser ? (
                         <div className="whitespace-pre-wrap select-text">{msg.content}</div>
-                      ) : isGenerating && msg.id === lastAssistantMsg?.id ? (
-                        renderMessageContent(msg.content.slice(0, typewriterPos), msg.citations)
                       ) : (
-                        renderMessageContent(msg.content, msg.citations)
+                        <>
+                          {msg.content.length > 0 ? (
+                            renderMessageContent(msg.content, msg.citations)
+                          ) : isGenerating && msg.id === lastAssistantMsg?.id ? (
+                            <span className="text-slate-400 text-xs">等待模型响应...</span>
+                          ) : null}
+                          {isGenerating && msg.id === lastAssistantMsg?.id && msg.content.length > 0 && (
+                            <span className="inline-block w-0.5 h-4 bg-indigo-500 ml-0.5 align-middle animate-cursor-blink rounded-sm" />
+                          )}
+                        </>
                       )}
                     </div>
 
@@ -420,23 +407,6 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
               );
             })}
 
-            {/* Simulated Loading Indicator for typing streaming */}
-            {isGenerating && (
-              <div className="flex items-start gap-4">
-                <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-600 text-white flex items-center justify-center shadow shadow-indigo-500/10 shrink-0">
-                  <Bot className="h-5 w-5" />
-                </div>
-                <div className="space-y-1.5">
-                  <div className="bg-white border border-slate-150 rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-800 shadow-sm min-w-[80px] flex items-center justify-center gap-1.5 select-none">
-                    <span className="h-2 w-2 rounded-full bg-slate-300 animate-bounce [animation-delay:-0.3s]" />
-                    <span className="h-2 w-2 rounded-full bg-slate-300 animate-bounce [animation-delay:-0.15s]" />
-                    <span className="h-2 w-2 rounded-full bg-slate-300 animate-bounce" />
-                  </div>
-                  <span className="text-[10px] text-slate-400 animate-pulse pl-1.5 block">本地模型正在检索并组织语言...</span>
-                </div>
-              </div>
-            )}
-            
             <div ref={messagesEndRef} />
           </div>
         )}

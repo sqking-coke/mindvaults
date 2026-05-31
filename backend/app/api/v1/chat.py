@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -57,17 +58,19 @@ async def chat_sessions(db: AsyncSession = Depends(get_db)):
 @router.delete("/chat/sessions/{session_id}")
 async def chat_session_delete(session_id: str, db: AsyncSession = Depends(get_db)):
     """删除会话及其所有问答记录。"""
+    logger.info(f"delete_session_request session_id={session_id}")
     await delete_session(db, session_id)
     return success_response({"deleted": session_id})
 
 
 @router.get("/chat/thinking/{session_id}")
-async def get_thinking(session_id: str):
-    """获取指定会话的推理过程（从 Redis 读取）。"""
+async def get_thinking(session_id: str, round_key: str | None = Query(None)):
+    """获取指定会话/轮次的推理过程（从 Redis 读取）。"""
     try:
         from app.core.redis import get_redis
         redis = await get_redis()
-        key = f"mv:thinking:{session_id}"
+        suffix = f":{round_key}" if round_key else ""
+        key = f"mv:thinking:{session_id}{suffix}"
         items = await redis.lrange(key, 0, -1)
         import json
         steps = [json.loads(item) for item in reversed(items)]  # LPUSH 是倒序的

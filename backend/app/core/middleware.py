@@ -1,6 +1,7 @@
 import time
 import uuid
 import json
+import re
 
 from fastapi import Request, Response
 from loguru import logger
@@ -12,6 +13,34 @@ from app.utils.logger import sanitize_body, should_log_body, is_health_check
 limiter = Limiter(key_func=get_remote_address)
 TRACE_HEADER = "X-Trace-Id"
 
+# 从路径中提取 session_id 的模式
+_SESSION_PATH_PATTERNS = [
+    re.compile(r"/sessions/([^/]+)"),
+    re.compile(r"/thinking/([^/]+)"),
+]
+
+
+def _extract_session_id(request: Request, body_dict: dict | None) -> str:
+    """从请求中提取 session_id，优先级：路径 > 查询参数 > 请求体 > 默认。"""
+    # 1. 路径参数：/sessions/{id} 或 /thinking/{id}
+    for pat in _SESSION_PATH_PATTERNS:
+        m = pat.search(request.url.path)
+        if m:
+            return m.group(1)
+
+    # 2. 查询参数：?session_id=xxx
+    qs = request.query_params.get("session_id")
+    if qs:
+        return qs
+
+    # 3. 请求体：{"session_id": "xxx"}
+    if body_dict and "session_id" in body_dict:
+        sid = body_dict["session_id"]
+        if isinstance(sid, str):
+            return sid
+
+    return "—"
+
 
 def _generate_trace_id() -> str:
     return uuid.uuid4().hex[:16]
@@ -22,24 +51,29 @@ async def request_log_middleware(request: Request, call_next):
     trace_id = request.headers.get(TRACE_HEADER) or _generate_trace_id()
     request.state.trace_id = trace_id
 
-    with logger.contextualize(trace_id=trace_id, session_id="—"):
-        # —— 请求体日志（DEBUG 模式或 POST/PUT 请求） ——
-        if should_log_body(request.method, request.url.path):
-            try:
-                body_bytes = await request.body()
-                if body_bytes:
-                    try:
-                        body_dict = json.loads(body_bytes)
-                        sanitized = sanitize_body(body_dict)
-                        logger.bind(type="request").debug(
-                            json.dumps(sanitized, ensure_ascii=False)
-                        )
-                    except json.JSONDecodeError:
-                        logger.bind(type="request").debug(
-                            json.dumps({"_raw": f"({len(body_bytes)} bytes, not json)"})
-                        )
-            except Exception:
-                pass
+    # —— 读取请求体（POST/PUT），用于提取 session_id 和日志记录 ——
+    body_dict: dict | None = None
+    if request.method in ("POST", "PUT", "PATCH"):
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                try:
+                    body_dict = json.loads(body_bytes)
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            pass
+
+    session_id = _extract_session_id(request, body_dict)
+    request.state.session_id = session_id
+
+    with logger.contextualize(trace_id=trace_id, session_id=session_id):
+        # —— 请求体日志 ——
+        if body_dict and should_log_body(request.method, request.url.path):
+            sanitized = sanitize_body(body_dict)
+            logger.bind(type="request").debug(
+                json.dumps(sanitized, ensure_ascii=False)
+            )
 
         # —— 执行业务 ——
         start = time.perf_counter()

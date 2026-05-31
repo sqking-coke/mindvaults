@@ -1,28 +1,30 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { fetchSystemInfo } from "@/services/ragService";
 import type { SystemInfo } from "@/services/ragService";
-import { 
-  MessageSquare, 
-  Database, 
-  Plus, 
-  Trash2, 
-  Edit3, 
-  Check, 
-  X, 
-  Cpu, 
-  HardDrive, 
+import {
+  MessageSquare,
+  Database,
+  Plus,
+  Trash2,
+  Edit3,
+  X,
+  Cpu,
+  HardDrive,
   Layers,
   ChevronLeft,
   Menu,
   Wrench,
   BarChart3,
   Settings,
-  Sliders
+  Sliders,
+  MoreHorizontal,
+  Pin,
+  PinOff
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -45,9 +47,34 @@ export default function Sidebar() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+
+  // 客户端挂载后恢复置顶状态，避免 SSR hydration 不匹配
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("mv_pinned_conv_ids");
+      if (saved) setPinnedIds(new Set<string>(JSON.parse(saved)));
+    } catch {}
+  }, []);
+  const [menuConvId, setMenuConvId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // 菜单打开时，点击外部自动关闭
+  useEffect(() => {
+    if (!menuConvId) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuConvId(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuConvId]);
+  const [deleteConvConfirm, setDeleteConvConfirm] = useState<{ id: string; title: string } | null>(null);
 
   // 获取真实系统信息
   useEffect(() => {
@@ -129,25 +156,29 @@ export default function Sidebar() {
     setEditingTitle(currentTitle);
   };
 
-  const saveRename = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    renameConversation(id, editingTitle);
+  const cancelRename = () => {
     setEditingId(null);
   };
 
-  const cancelRename = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setEditingId(null);
-  };
+  // 置顶状态持久化
+  useEffect(() => {
+    localStorage.setItem("mv_pinned_conv_ids", JSON.stringify(Array.from(pinnedIds)));
+  }, [pinnedIds]);
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (confirm("确定要删除此对话吗？")) {
-      deleteConversation(id);
+  // 进入重命名模式时自动全选文本
+  useEffect(() => {
+    if (editingId && renameInputRef.current) {
+      renameInputRef.current.select();
     }
+  }, [editingId]);
+
+  const togglePin = (id: string) => {
+    setPinnedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleNewChat = () => {
@@ -292,109 +323,159 @@ export default function Sidebar() {
       {/* Conversation List (Only shown if Chat path is active) */}
       {isChatActive && !isCollapsed && (
         <div className="flex-1 overflow-y-auto px-2 py-2 border-t border-slate-800/60 flex flex-col min-h-0">
-          <div className="px-2 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+          <div className="px-2 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 shrink-0">
             历史对话
           </div>
-          <div className="space-y-1 overflow-y-auto flex-1 pr-1">
+          <div className="space-y-0.5 flex-1 px-1">
             {conversations.length === 0 ? (
               <div className="text-center py-6 text-xs text-slate-600 select-none">
                 无历史对话记录
               </div>
             ) : (
-              conversations.map(conv => {
-                const isActive = activeConversationId === conv.id;
-                const isEditing = editingId === conv.id;
+              (() => {
+                const pinned = conversations.filter(c => pinnedIds.has(c.id));
+                const normal = conversations.filter(c => !pinnedIds.has(c.id));
+                const sorted = [...pinned, ...normal];
 
                 return (
-                  <div
-                    key={conv.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      if (!isEditing) {
-                        setActiveConversationId(conv.id);
-                        setMobileOpen(false);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if ((e.key === "Enter" || e.key === " ") && !isEditing) {
-                        e.preventDefault();
-                        setActiveConversationId(conv.id);
-                        setMobileOpen(false);
-                      }
-                    }}
-                    aria-current={isActive ? "true" : "false"}
-                    aria-label={`切换到对话: ${conv.title}`}
-                    className={`group relative flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-medium cursor-pointer transition-all duration-150 border border-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isActive 
-                        ? "bg-slate-800 text-white border-slate-700 shadow-sm" 
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/30"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 overflow-hidden w-full pr-6">
-                      <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-indigo-400" : "text-slate-500"}`} />
-                      
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editingTitle}
-                          onChange={(e) => setEditingTitle(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveRename(conv.id, e as any);
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="bg-slate-700 text-white px-1.5 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full font-sans text-xs"
-                          autoFocus
-                        />
-                      ) : (
-                        <span className="truncate pr-2">{conv.title}</span>
-                      )}
-                    </div>
+                  <>
+                    {sorted.map((conv, i) => {
+                      const isActive = activeConversationId === conv.id;
+                      const isEditing = editingId === conv.id;
+                      const isPinned = pinnedIds.has(conv.id);
+                      const showPinSep = i === pinned.length - 1 && pinned.length > 0 && normal.length > 0;
 
-                    {/* Action buttons on Hover */}
-                    {!isEditing && (
-                      <div className="absolute right-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity bg-gradient-to-l from-slate-900 group-hover:from-slate-800 pl-4 py-1 rounded-r-xl">
-                        <button
-                          onClick={(e) => startRename(conv.id, conv.title, e)}
-                          className="text-slate-500 hover:text-slate-300 p-0.5 rounded hover:bg-slate-700 transition-colors focus:outline-none focus:ring-1 focus:ring-slate-400"
-                          title="重命名"
-                          aria-label="重命名此对话"
-                        >
-                          <Edit3 className="h-3 w-3" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(conv.id, e)}
-                          className="text-slate-500 hover:text-red-400 p-0.5 rounded hover:bg-slate-700 transition-colors focus:outline-none focus:ring-1 focus:ring-red-400"
-                          title="删除对话"
-                          aria-label="删除此对话"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
+                      return (
+                        <div key={conv.id}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              if (!isEditing) {
+                                setActiveConversationId(conv.id);
+                                setMobileOpen(false);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if ((e.key === "Enter" || e.key === " ") && !isEditing) {
+                                e.preventDefault();
+                                setActiveConversationId(conv.id);
+                                setMobileOpen(false);
+                              }
+                            }}
+                            aria-current={isActive ? "true" : "false"}
+                            aria-label={`切换到对话: ${conv.title}`}
+                            className={`group relative flex items-center justify-between rounded-xl px-3 py-3 text-xs font-medium cursor-pointer transition-all duration-150 border border-transparent focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                              isActive
+                                ? "bg-slate-800 text-white border-slate-700 shadow-sm"
+                                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/30"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 overflow-hidden w-full pr-8">
+                              <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-indigo-400" : "text-slate-500"}`} />
 
-                    {isEditing && (
-                      <div className="absolute right-2 flex items-center gap-0.5 bg-slate-800 pl-2">
-                        <button
-                          onClick={(e) => saveRename(conv.id, e)}
-                          className="text-emerald-400 hover:text-emerald-300 p-0.5 rounded hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-400"
-                          aria-label="保存修改后的名称"
-                        >
-                          <Check className="h-3 w-3" />
-                        </button>
-                        <button
-                          onClick={(e) => cancelRename(e)}
-                          className="text-slate-400 hover:text-slate-300 p-0.5 rounded hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                          aria-label="取消重命名"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                              {isEditing ? (
+                                <input
+                                  ref={renameInputRef}
+                                  type="text"
+                                  value={editingTitle}
+                                  onChange={(e) => setEditingTitle(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                                    if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                                  }}
+                                  onBlur={() => {
+                                    if (editingTitle.trim()) {
+                                      renameConversation(conv.id, editingTitle.trim());
+                                    }
+                                    setEditingId(null);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="bg-transparent text-white px-0 py-1 focus:outline-none w-full font-sans text-sm"
+                                  autoFocus
+                                />
+                              ) : (
+                                <span className="truncate pr-2">{conv.title}</span>
+                              )}
+                            </div>
+
+                            {/* ⋯ 按钮 + 下拉菜单 */}
+                            {!isEditing && (
+                              <div className="absolute right-1.5">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMenuConvId(menuConvId === conv.id ? null : conv.id);
+                                  }}
+                                  className={`p-1 rounded-md transition-all focus:outline-none ${
+                                    menuConvId === conv.id
+                                      ? "bg-slate-700 text-slate-200"
+                                      : "text-slate-500 opacity-0 group-hover:opacity-100 hover:text-slate-200 hover:bg-slate-700"
+                                  }`}
+                                  aria-label="更多操作"
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </button>
+
+                                {menuConvId === conv.id && (
+                                    <div
+                                      ref={menuRef}
+                                      className="absolute right-0 top-full mt-1 z-20 w-32 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 animate-fade-in"
+                                    >
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startRename(conv.id, conv.title, e);
+                                          setMenuConvId(null);
+                                        }}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors text-left"
+                                      >
+                                        <Edit3 className="h-3 w-3" />
+                                        重命名
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          togglePin(conv.id);
+                                          setMenuConvId(null);
+                                        }}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors text-left"
+                                      >
+                                        {isPinned ? <><PinOff className="h-3 w-3" /> 取消置顶</> : <><Pin className="h-3 w-3" /> 置顶</>}
+                                      </button>
+                                      <div className="border-t border-slate-700 my-0.5" />
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDeleteConvConfirm({ id: conv.id, title: conv.title });
+                                          setMenuConvId(null);
+                                        }}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-400 hover:bg-slate-700 transition-colors text-left"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                        删除
+                                      </button>
+                                    </div>
+                                )}
+                              </div>
+                            )}
+
+                          </div>
+
+                          {/* 置顶分隔线 */}
+                          {showPinSep && (
+                            <div className="flex items-center gap-2 px-3 py-1">
+                              <div className="flex-1 h-px bg-slate-700" />
+                              <span className="text-[9px] text-slate-600 shrink-0">已置顶</span>
+                              <div className="flex-1 h-px bg-slate-700" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
                 );
-              })
+              })()
             )}
           </div>
         </div>
@@ -769,6 +850,41 @@ export default function Sidebar() {
                 className="px-5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-lg shadow-indigo-500/10 hover:shadow-indigo-500/20 transition-all flex items-center gap-1 focus:outline-none"
               >
                 {isSaving ? "正在保存..." : "保存配置"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 侧边栏内删除确认弹窗 */}
+      {deleteConvConfirm && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in"
+          onClick={() => setDeleteConvConfirm(null)}
+        >
+          <div
+            className="bg-slate-800 border border-slate-700 rounded-2xl shadow-xl p-5 max-w-[240px] w-full mx-3 animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-slate-200 text-sm">删除后，该对话将不可恢复</h3>
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+              由该对话生成的分享链接也将失效
+            </p>
+            <div className="flex justify-end gap-2.5 mt-4 pt-3 border-t border-slate-700">
+              <button
+                onClick={() => setDeleteConvConfirm(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 border border-slate-600 rounded-xl hover:bg-slate-700 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  if (deleteConvConfirm) deleteConversation(deleteConvConfirm.id);
+                  setDeleteConvConfirm(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors shadow-sm"
+              >
+                确认删除
               </button>
             </div>
           </div>

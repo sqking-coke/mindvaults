@@ -21,6 +21,12 @@ export function formatDateTimeFull(iso?: string | null): string {
   return iso.replace("T", " ").substring(0, 19);
 }
 
+/** "HH:MM" — 本地时间，用于消息气泡。不传参取当前时间 */
+export function formatTime(iso?: string | null): string {
+  const d = iso ? new Date(iso) : new Date();
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 /** 当前时间的 ISO 字符串 */
 export function nowISO(): string {
   return new Date().toISOString();

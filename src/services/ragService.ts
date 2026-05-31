@@ -20,7 +20,7 @@ import type {
   VaultImportResponse,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
-import { formatDateTime } from "@/utils/date";
+import { formatDateTime, formatTime } from "@/utils/date";
 import * as api from "./apiClient";
 
 export type { OverviewStats, FrequentQuestionsResponse, UnansweredListResponse };
@@ -62,7 +62,7 @@ export function historyRecordToMessage(record: ChatHistoryRecord, index: number)
   user: Message;
   assistant: Message;
 } {
-  const baseTime = record.created_at;
+  const baseTime = formatTime(record.created_at);
   return {
     user: {
       id: `msg-user-${record.id}`,
@@ -76,6 +76,7 @@ export function historyRecordToMessage(record: ChatHistoryRecord, index: number)
       content: record.answer,
       timestamp: baseTime,
       citations: record.ref_chunks?.map((c, i) => refChunkToCitation(c, i)) || [],
+      roundKey: record.round_key || undefined,
     },
   };
 }
@@ -262,9 +263,10 @@ export async function testRetrieval(
 
 // ==================== 推理过程 ====================
 
-export async function fetchThinkingSteps(sessionId: string): Promise<Array<{ phase: string; message: string; elapsed_ms?: number; similarity?: number }>> {
+export async function fetchThinkingSteps(sessionId: string, roundKey?: string): Promise<Array<{ phase: string; message: string; elapsed_ms?: number; similarity?: number }>> {
+  const qs = roundKey ? `?round_key=${roundKey}` : "";
   const data = await api.get<{ session_id: string; steps: Array<{ phase: string; message: string; elapsed_ms?: number; similarity?: number }> }>(
-    `/api/v1/kb/chat/thinking/${sessionId}`,
+    `/api/v1/kb/chat/thinking/${sessionId}${qs}`,
   );
   return data.steps || [];
 }

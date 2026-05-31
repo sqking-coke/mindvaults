@@ -2,12 +2,13 @@
 
 import React, { useState } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
-import { 
-  FileText, 
-  Clock, 
-  RefreshCw, 
-  Trash2, 
-  AlertCircle, 
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
+import {
+  FileText,
+  Clock,
+  RefreshCw,
+  Trash2,
+  AlertCircle,
   CheckCircle,
   Eye,
   EyeOff,
@@ -291,40 +292,13 @@ export default function DocumentTable({ opsMode = false }: DocumentTableProps) {
       </div>
 
       {/* 删除确认弹窗 */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-w-sm w-full mx-4 animate-fade-in">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
-                <AlertCircle className="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 text-sm">确认删除文档</h3>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  将永久删除 <b className="text-slate-700">{deleteConfirm.name}</b> 及其所有切片数据，删除后不可恢复。
-                </p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => {
-                  deleteDocument(deleteConfirm.id);
-                  setDeleteConfirm(null);
-                }}
-                className="px-4 py-2 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors shadow-sm"
-              >
-                确认删除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => deleteDocument(deleteConfirm!.id)}
+        title="确认删除文档"
+        message={<>将永久删除 <b className="text-slate-700">{deleteConfirm?.name}</b> 及其所有切片数据，删除后不可恢复。</>}
+      />
     </div>
   );
 }

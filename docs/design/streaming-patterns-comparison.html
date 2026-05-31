@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>流式对话动效 Demo</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  .container { max-width: 900px; margin:0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; color: #f1f5f9; }
+  .subtitle { font-size: 0.8rem; color: #94a3b8; margin-bottom: 24px; }
+
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .controls button {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid #334155;
+    background: #1e293b; color: #e2e8f0; cursor: pointer;
+    font-size: 0.8rem; font-weight: 500;
+    transition: all 0.15s;
+  }
+  .controls button:hover { background: #334155; border-color: #6366f1; }
+  .controls button.active { background: #312e81; border-color: #6366f1; color: #c7d2fe; }
+
+  .demo-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-bottom: 16px;
+  }
+  .demo-panel {
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 12px; overflow: hidden;
+  }
+  .panel-header {
+    padding: 8px 12px; background: #0f172a;
+    border-bottom: 1px solid #334155;
+    font-size: 0.7rem; font-weight: 600; color: #94a3b8;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .panel-header .badge {
+    padding: 1px 6px; border-radius: 4px; font-size: 0.6rem;
+    background: #312e81; color: #c7d2fe;
+  }
+  .panel-body {
+    padding: 12px; max-height: 400px; overflow-y: auto;
+    font-size: 0.82rem; line-height: 1.7;
+  }
+
+  /* Chat bubbles */
+  .msg { display: flex; gap: 8px; margin-bottom: 14px; }
+  .msg.user { justify-content: flex-end; }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem;
+  }
+  .avatar.bot { background: linear-gradient(135deg,#6366f1,#8b5cf6); }
+  .avatar.user { background: #334155; border: 1px solid #475569; }
+  .bubble {
+    max-width: 82%; padding: 10px 14px; border-radius: 12px;
+    font-size: 0.82rem; line-height: 1.7;
+  }
+  .bubble.user {
+    background: #4f46e5; color: #e0e7ff; border-top-right-radius: 4px;
+  }
+  .bubble.assistant {
+    background: #0f172a; border: 1px solid #334155;
+    border-top-left-radius: 4px; color: #cbd5e1;
+  }
+
+  /* Cursor blink */
+  .cursor-blink {
+    display: inline-block; width: 2px; height: 1.1em;
+    background: #818cf8; margin-left: 1px; vertical-align: text-bottom;
+    animation: blink 0.8s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Pipeline steps */
+  .pipeline-step {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; margin-bottom: 4px;
+    border-radius: 6px; background: #1e293b;
+    border: 1px solid #334155;
+    font-size: 0.72rem; transition: all 0.3s;
+  }
+  .pipeline-step.active {
+    border-color: #f59e0b; background: #292524;
+    animation: pulse-border 2s infinite;
+  }
+  .pipeline-step.done {
+    border-color: #22c55e; background: #1a2e1a;
+  }
+  @keyframes pulse-border {
+    0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.3); }
+    50% { box-shadow: 0 0 0 4px rgba(245,158,11,0); }
+  }
+  .step-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .step-dot.waiting { background: #475569; }
+  .step-dot.active { background: #f59e0b; animation: pulse-dot 1s infinite; }
+  .step-dot.done { background: #22c55e; }
+  @keyframes pulse-dot {
+    0%,100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.5); opacity: 0.5; }
+  }
+  .step-status { margin-left: auto; font-size: 0.65rem; }
+  .step-status.running { color: #f59e0b; }
+  .step-status.finished { color: #22c55e; }
+
+  /* Block-level rendering */
+  .md-block {
+    padding: 4px 0; transition: opacity 0.2s;
+  }
+  .md-block h3 { font-size: 0.9rem; color: #e2e8f0; margin: 8px 0 4px; }
+  .md-block code {
+    background: #1e293b; padding: 2px 6px; border-radius: 4px;
+    font-size: 0.75rem; color: #f59e0b;
+  }
+  .md-block .citation-inline {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 4px;
+    background: #312e81; color: #c7d2fe;
+    font-size: 0.6rem; font-weight: 700; margin: 0 2px;
+    cursor: pointer; vertical-align: middle;
+  }
+  .citation-card {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px; margin: 4px; border-radius: 8px;
+    background: #1e293b; border: 1px solid #334155;
+    font-size: 0.68rem; animation: fadeInUp 0.4s ease both;
+  }
+  @keyframes fadeInUp {
+    from { opacity:0; transform: translateY(8px); }
+    to { opacity:1; transform: translateY(0); }
+  }
+
+  /* Typewriter comparison */
+  .typewriter-demo {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.75rem; color: #94a3b8;
+  }
+
+  /* Streaming token animation */
+  .token-stream {
+    display: inline;
+  }
+  .token-new {
+    animation: tokenPop 0.15s ease-out;
+  }
+  @keyframes tokenPop {
+    from { opacity:0; transform: translateY(4px); }
+    to { opacity:1; transform: translateY(0); }
+  }
+
+  /* Progress bar */
+  .progress-bar-wrap {
+    height: 3px; background: #334155; border-radius: 2px;
+    margin: 4px 0; overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%; background: linear-gradient(90deg,#6366f1,#8b5cf6);
+    border-radius: 2px; transition: width 0.3s;
+  }
+
+  .timeline {
+    position: relative; padding-left: 16px;
+  }
+  .timeline::before {
+    content: ''; position: absolute; left: 4px; top: 0; bottom: 0;
+    width: 1px; background: #334155;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>🔴 流式对话动效 — 实时 Demo</h1>
+  <p class="subtitle">点击下方按钮重播动画 · 四种方案并排对比</p>
+
+  <div class="controls">
+    <button onclick="replayAll()" style="background:#312e81;border-color:#6366f1;">▶ 全部重播</button>
+    <button onclick="replay('pipeline')">重播 Pipeline</button>
+    <button onclick="replay('token')">重播逐 Token</button>
+    <button onclick="replay('block')">重播块级渐进</button>
+    <button onclick="replay('card')">重播先卡片后答案</button>
+  </div>
+
+  <!-- Row 1: Pipeline + Token -->
+  <div class="demo-row">
+    <!-- Panel 1: Multi-Agent Pipeline Visualization -->
+    <div class="demo-panel" id="panel-pipeline">
+      <div class="panel-header">
+        <span>🔀</span> 方案 E · 多 Agent Pipeline 步骤可视化
+        <span class="badge">Devin / Manus 风格</span>
+      </div>
+      <div class="panel-body" id="pipeline-body">
+        <div class="msg user">
+          <div class="bubble user">向量检索的核心原理是什么？</div>
+          <div class="avatar user">👤</div>
+        </div>
+        <div class="msg">
+          <div class="avatar bot">🤖</div>
+          <div>
+            <!-- Pipeline steps injected here -->
+            <div id="pipeline-steps"></div>
+            <!-- Answer text -->
+            <div class="bubble assistant" id="pipeline-answer" style="margin-top:8px;display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 2: True Token Streaming (no typewriter buffer) -->
+    <div class="demo-panel" id="panel-token">
+      <div class="panel-header">
+        <span>⚡</span> 方案 A · 真实逐 Token 流式（无打字机缓冲）
+        <span class="badge">ChatGPT / Claude 风格</span>
+      </div>
+      <div class="panel-body" id="token-body">
+        <div class="msg user">
+          <div class="bubble user">向量检索的核心原理是什么？</div>
+          <div class="avatar user">👤</div>
+        </div>
+        <div class="msg">
+          <div class="avatar bot">🤖</div>
+          <div>
+            <div class="bubble assistant" id="token-answer">
+              <span id="token-content"></span><span class="cursor-blink" id="token-cursor"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: Block Progressive + Card-First -->
+  <div class="demo-row">
+    <!-- Panel 3: Markdown Block Progressive -->
+    <div class="demo-panel" id="panel-block">
+      <div class="panel-header">
+        <span>📝</span> 方案 B · Markdown 块级渐进渲染
+        <span class="badge">Perplexity / Kagi 风格</span>
+      </div>
+      <div class="panel-body" id="block-body">
+        <div class="msg user">
+          <div class="bubble user">向量检索的核心原理是什么？</div>
+          <div class="avatar user">👤</div>
+        </div>
+        <div class="msg">
+          <div class="avatar bot">🤖</div>
+          <div>
+            <div class="bubble assistant" id="block-answer"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 4: Card-First, Then Answer -->
+    <div class="demo-panel" id="panel-card">
+      <div class="panel-header">
+        <span>🃏</span> 方案 D · 先检索结果卡片，再展开答案
+        <span class="badge">Cursor / Copilot 风格</span>
+      </div>
+      <div class="panel-body" id="card-body">
+        <div class="msg user">
+          <div class="bubble user">向量检索的核心原理是什么？</div>
+          <div class="avatar user">👤</div>
+        </div>
+        <div class="msg">
+          <div class="avatar bot">🤖</div>
+          <div>
+            <div id="card-results"></div>
+            <div class="bubble assistant" id="card-answer" style="margin-top:8px;display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============ ANSWER TEXT ============
+const FULL_TEXT = `向量检索（Vector Retrieval）的核心原理是将非结构化文本通过 Embedding 模型映射到高维向量空间，然后通过近似最近邻（ANN）算法快速找到语义最相似的向量。
+
+具体分为三步：
+
+1. Embedding：使用 BGE-M3 模型将文档和查询分别编码为 1024 维向量；
+2. 索引构建：通过 HNSW 图结构将百万级向量组织为多层跳表，实现 O(log N) 检索复杂度；
+3. 相似度计算：对查询向量与候选向量做余弦相似度计算，返回 Top-K 结果。
+
+最后通过 BCE Reranker 对初检结果进行语义重排，将最相关的片段作为 LLM 生成的上下文。`;
+
+const TOKENS = [];
+// Split into realistic token chunks (Chinese chars are individual tokens, English words)
+let i = 0;
+while (i < FULL_TEXT.length) {
+  const ch = FULL_TEXT[i];
+  if (/[一-鿿]/.test(ch)) {
+    TOKENS.push(ch);
+    i++;
+  } else if (/[a-zA-Z0-9]/.test(ch)) {
+    let word = '';
+    while (i < FULL_TEXT.length && /[a-zA-Z0-9]/.test(FULL_TEXT[i])) {
+      word += FULL_TEXT[i]; i++;
+    }
+    TOKENS.push(word);
+  } else {
+    // Punctuation, newlines, spaces
+    let punct = '';
+    while (i < FULL_TEXT.length && !/[一-鿿a-zA-Z0-9]/.test(FULL_TEXT[i])) {
+      punct += FULL_TEXT[i]; i++;
+    }
+    TOKENS.push(punct);
+  }
+}
+
+const ANSWER_BLOCKS = [
+  { type: 'h3', text: '## 核心原理' },
+  { type: 'p', text: '向量检索（Vector Retrieval）的核心原理是将非结构化文本通过 Embedding 模型映射到高维向量空间，然后通过近似最近邻（ANN）算法快速找到语义最相似的向量。' },
+  { type: 'h3', text: '## 具体三步' },
+  { type: 'p', text: '1. Embedding：使用 BGE-M3 模型将文档和查询分别编码为 1024 维向量；' },
+  { type: 'p', text: '2. 索引构建：通过 HNSW 图结构将百万级向量组织为多层跳表，实现 O(log N) 检索复杂度；' },
+  { type: 'p', text: '3. 相似度计算：对查询向量与候选向量做余弦相似度计算，返回 Top-K 结果。' },
+  { type: 'h3', text: '## 语义重排' },
+  { type: 'p', text: '最后通过 BCE Reranker 对初检结果进行语义重排，将最相关的片段作为 LLM 生成的上下文。' },
+];
+
+const CITATIONS = [
+  { idx: 1, doc: '向量检索白皮书 v2.3', page: 4, score: 94 },
+  { idx: 2, doc: 'BGE-M3 技术报告', page: 12, score: 87 },
+  { idx: 3, doc: 'HNSW 算法详解', page: 8, score: 82 },
+];
+
+const PIPELINE_STEPS = [
+  { id: 'intent', icon: '🎯', label: '意图识别', detail: '分析用户问题 → 判定为"技术原理查询"', ms: 120 },
+  { id: 'retrieval', icon: '🔍', label: '向量检索', detail: 'BGE-M3 编码查询 → HNSW 检索 12 个文档', ms: 350 },
+  { id: 'rerank', icon: '📊', label: '语义重排', detail: 'BCE Reranker 精排 Top-5 候选片段', ms: 180 },
+  { id: 'generate', icon: '✍️', label: 'LLM 生成', detail: '基于 Top-3 上下文片段组织回答', ms: 0 },
+];
+
+// ============ REPLAY FUNCTIONS ============
+let running = {};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function replayPipeline() {
+  const container = document.getElementById('pipeline-steps');
+  const answer = document.getElementById('pipeline-answer');
+  container.innerHTML = '';
+  answer.style.display = 'none';
+  answer.innerHTML = '';
+
+  // Build pipeline steps
+  for (const step of PIPELINE_STEPS) {
+    const div = document.createElement('div');
+    div.className = 'pipeline-step';
+    div.id = `step-${step.id}`;
+    div.innerHTML = `
+      <span style="font-size:0.9rem;">${step.icon}</span>
+      <span style="font-weight:500;color:#e2e8f0;">${step.label}</span>
+      <span style="font-size:0.65rem;color:#94a3b8;">${step.detail}</span>
+      <span class="step-status" id="step-status-${step.id}"></span>
+    `;
+    container.appendChild(div);
+  }
+
+  // Animate pipeline steps
+  for (let i = 0; i < PIPELINE_STEPS.length; i++) {
+    const step = PIPELINE_STEPS[i];
+    const div = document.getElementById(`step-${step.id}`);
+    const status = document.getElementById(`step-status-${step.id}`);
+
+    // Mark as active
+    div.classList.add('active');
+    status.className = 'step-status running';
+    status.textContent = '⏳ 执行中...';
+
+    await sleep(step.ms || 300);
+
+    // Mark as done
+    div.classList.remove('active');
+    div.classList.add('done');
+    status.className = 'step-status finished';
+    status.textContent = `✅ ${step.ms}ms`;
+  }
+
+  // Start streaming answer after pipeline
+  answer.style.display = 'block';
+  let content = '';
+  for (const token of TOKENS) {
+    content += token;
+    answer.innerHTML = content.replace(/\n/g, '<br>') + '<span class="cursor-blink"></span>';
+    await sleep(20 + Math.random() * 30);
+  }
+  // Insert citations
+  answer.innerHTML = content.replace(/\n/g, '<br>');
+  // Add citation tags inline
+  const citationHtml = CITATIONS.map(c =>
+    `<span class="citation-inline" title="${c.doc} · 第${c.page}页">[${c.idx}]</span>`
+  ).join('');
+  answer.innerHTML += '<br><br>' + citationHtml;
+}
+
+async function replayTokenStream() {
+  const contentEl = document.getElementById('token-content');
+  const cursor = document.getElementById('token-cursor');
+  contentEl.innerHTML = '';
+  cursor.style.display = 'inline-block';
+
+  let content = '';
+  for (const token of TOKENS) {
+    content += token;
+    contentEl.innerHTML = content.replace(/\n/g, '<br>');
+    await sleep(15 + Math.random() * 25);
+  }
+  cursor.style.display = 'none';
+
+  // Add citations after
+  const citationHtml = '&nbsp;'.repeat(2) + CITATIONS.map(c =>
+    `<span class="citation-inline" title="${c.doc}">[${c.idx}]</span>`
+  ).join(' ');
+  contentEl.innerHTML += citationHtml;
+}
+
+async function replayBlockProgressive() {
+  const container = document.getElementById('block-answer');
+  container.innerHTML = '';
+
+  for (const block of ANSWER_BLOCKS) {
+    const div = document.createElement('div');
+    div.className = 'md-block';
+    div.style.opacity = '0';
+    div.style.transform = 'translateY(4px)';
+
+    if (block.type === 'h3') {
+      div.innerHTML = `<h3>${block.text.replace('## ','')}</h3>`;
+    } else {
+      div.innerHTML = `<p style="color:#cbd5e1;">${block.text}</p>`;
+    }
+
+    container.appendChild(div);
+
+    // Fade in the block
+    requestAnimationFrame(() => {
+      div.style.transition = 'all 0.4s ease';
+      div.style.opacity = '1';
+      div.style.transform = 'translateY(0)';
+    });
+    await sleep(500 + Math.random() * 200);
+  }
+
+  // Citation cards appear
+  await sleep(200);
+  const citeRow = document.createElement('div');
+  citeRow.style.marginTop = '12px';
+  citeRow.innerHTML = CITATIONS.map(c =>
+    `<div class="citation-card">
+      <span style="background:#312e81;color:#c7d2fe;padding:1px 5px;border-radius:3px;font-size:0.6rem;">[${c.idx}]</span>
+      <span>${c.doc}</span>
+      <span style="color:#94a3b8;">· 第${c.page}页 · ${c.score}%</span>
+    </div>`
+  ).join('');
+  container.appendChild(citeRow);
+}
+
+async function replayCardFirst() {
+  const resultsContainer = document.getElementById('card-results');
+  const answerEl = document.getElementById('card-answer');
+  resultsContainer.innerHTML = '';
+  answerEl.style.display = 'none';
+  answerEl.innerHTML = '';
+
+  // Show "searching" state
+  const searchingDiv = document.createElement('div');
+  searchingDiv.className = 'pipeline-step active';
+  searchingDiv.innerHTML = `
+    <span style="font-size:0.9rem;">🔍</span>
+    <span style="font-weight:500;">正在检索知识库...</span>
+    <span class="step-status running">⏳ 扫描 12 个文档</span>
+  `;
+  resultsContainer.appendChild(searchingDiv);
+  await sleep(600);
+
+  // Show "found" state
+  searchingDiv.classList.remove('active');
+  searchingDiv.classList.add('done');
+  searchingDiv.querySelector('.step-status').className = 'step-status finished';
+  searchingDiv.querySelector('.step-status').textContent = '✅ 找到 5 个相关片段';
+
+  // Animate citation cards appearing one by one
+  await sleep(300);
+  const cardsRow = document.createElement('div');
+  cardsRow.style.display = 'flex';
+  cardsRow.style.flexWrap = 'wrap';
+  cardsRow.style.gap = '6px';
+  cardsRow.style.marginTop = '8px';
+  resultsContainer.appendChild(cardsRow);
+
+  for (const c of CITATIONS) {
+    const card = document.createElement('div');
+    card.className = 'citation-card';
+    card.style.animation = 'fadeInUp 0.4s ease both';
+    card.innerHTML = `
+      <span style="background:#312e81;color:#c7d2fe;padding:2px 6px;border-radius:4px;font-size:0.6rem;font-weight:700;">[${c.idx}]</span>
+      <div>
+        <div style="font-weight:500;color:#e2e8f0;">${c.doc}</div>
+        <div style="font-size:0.6rem;color:#94a3b8;">第 ${c.page} 页 · 相似度 ${c.score}%</div>
+      </div>
+    `;
+    cardsRow.appendChild(card);
+    await sleep(250);
+  }
+
+  // Now start streaming answer
+  await sleep(400);
+  answerEl.style.display = 'block';
+  let content = '';
+  for (const token of TOKENS) {
+    content += token;
+    answerEl.innerHTML = content.replace(/\n/g, '<br>') + '<span class="cursor-blink"></span>';
+    await sleep(15 + Math.random() * 25);
+  }
+  answerEl.innerHTML = content.replace(/\n/g, '<br>');
+  // Add inline citation tags
+  answerEl.innerHTML += '<br>' + CITATIONS.map(c =>
+    `<span class="citation-inline">[${c.idx}]</span>`
+  ).join(' ');
+}
+
+async function replay(which) {
+  if (running[which]) return;
+  running[which] = true;
+  switch (which) {
+    case 'pipeline': await replayPipeline(); break;
+    case 'token': await replayTokenStream(); break;
+    case 'block': await replayBlockProgressive(); break;
+    case 'card': await replayCardFirst(); break;
+  }
+  running[which] = false;
+}
+
+async function replayAll() {
+  await Promise.all([
+    replay('pipeline'),
+    replay('token'),
+    replay('block'),
+    replay('card'),
+  ]);
+}
+
+// Auto-play on load with staggered start
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => replayAll(), 600);
+});
+</script>
+
+</body>
+</html>

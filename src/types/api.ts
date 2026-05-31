@@ -88,6 +88,7 @@ export interface Message {
   timestamp: string;
   citations?: Citation[];
   thinkingSteps?: ThinkingStep[];
+  roundKey?: string;
 }
 
 /** 前端 Conversation（与 Session 对齐） */
@@ -192,6 +193,7 @@ export interface SSETokenEvent {
 /** SSE event: done */
 export interface SSEDoneEvent {
   ref_chunks: RefChunk[];
+  round_key: string;
 }
 
 /** SSE event: error */
@@ -207,6 +209,7 @@ export interface ChatHistoryRecord {
   answer: string;
   ref_chunks: RefChunk[];
   model_name: string;
+  round_key?: string | null;
   created_at: string;
 }
 

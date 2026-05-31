@@ -260,6 +260,7 @@ async def import_vault(
 
         except Exception as exc:
             logger.error(f"Vault 文件导入失败: {file_path.name} — {exc}")
+            await db.rollback()  # 重置损坏的会话状态
             errors.append({"file": file_path.name, "reason": str(exc)})
             failed += 1
 
@@ -358,6 +359,7 @@ async def import_vault_files(
 
         except Exception as exc:
             logger.error(f"Vault 上传文件导入失败: {file.filename} — {exc}")
+            await db.rollback()  # 重置损坏的会话状态
             errors.append({"file": file.filename or "unknown", "reason": str(exc)})
             failed += 1
 

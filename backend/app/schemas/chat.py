@@ -34,6 +34,7 @@ class ChatHistoryRecord(BaseModel):
     answer: str
     ref_chunks: list[RefChunk]
     model_name: str
+    round_key: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
