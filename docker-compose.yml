@@ -1,13 +1,9 @@
 version: '3.8'
 
 # =============================================================================
-# mindvaults Docker Compose (双模式)
+# mindvaults Demo 部署（5 容器，LLM 走云端 API）
 #
-# 默认模式（5 容器，~1.5 GB，LLM 走云端）：
-#   docker compose up -d
-#
-# 全栈模式（6 容器，Ollama 本地推理，数据完全不出网）：
-#   docker compose --profile full up -d
+# 启动：docker compose --env-file .env.demo up -d
 # =============================================================================
 
 services:
@@ -18,7 +14,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://localhost/api/v1
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost/api/v1}
+      - NEXT_PUBLIC_DEMO_MODE=${NEXT_PUBLIC_DEMO_MODE:-false}
     depends_on:
       - backend
     restart: unless-stopped
@@ -30,23 +27,10 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - .env.demo
     environment:
       - DATABASE_URL=postgresql+asyncpg://mindvaults:mindvaults@db:5432/mindvaults
-      # LLM / Embedding — 通过 .env 或下方默认值配置
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
-      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
-      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.3}
-      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
-      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-ada-002}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-1536}
-      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-${LLM_API_KEY}}
-      # Redis：全栈模式自动启用，轻量模式不启用（无 Redis 时自动降级直查 PG）
       - REDIS_URL=redis://redis:6379
-      - REDIS_CACHE_ENABLED=${REDIS_CACHE_ENABLED:-true}
     volumes:
       - uploads_data:/app/uploads
       - ./logs:/app/logs
@@ -55,9 +39,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
-        required: false
     restart: unless-stopped
 
   db:
@@ -75,19 +56,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - frontend
-      - backend
-    restart: unless-stopped
-
-  # ── 以下服务仅在全栈模式下启动 ──
-
   redis:
     image: redis:7-alpine
     healthcheck:
@@ -97,21 +65,18 @@ services:
       retries: 5
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    profiles:
-      - full
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
     restart: unless-stopped
 
 volumes:
   pgdata:
-  ollama_data:
   uploads_data:

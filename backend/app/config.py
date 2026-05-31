@@ -38,10 +38,19 @@ class Settings(BaseSettings):
     EMBEDDING_BASE_URL: str = ""
     EMBEDDING_API_KEY: str = ""
 
+    # --- Demo 模式 ---
+    DEMO_MODE: bool = False
+
     # --- 上传 ---
     UPLOAD_DIR: str = str(Path(__file__).resolve().parent.parent / "uploads")
+    # demo 模式默认 5MB，生产环境可在 .env 中覆盖
     MAX_UPLOAD_SIZE_MB: int = 50
+    MAX_FILES_PER_UPLOAD: int = 20
     ALLOWED_EXTENSIONS: str = "txt,md,pdf,docx,doc"
+
+    # --- 限流 (demo 模式更严格) ---
+    CHAT_RATE_LIMIT: str = "30/minute"
+    UPLOAD_RATE_LIMIT: str = "10/minute"
 
     # --- 日志 ---
     LOG_LEVEL: str = "INFO"
