@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect } from "react";
-import Sidebar from "@/components/layout/Sidebar";
 import { AlertCircle, RefreshCw, Home } from "lucide-react";
 import Link from "next/link";
 
@@ -18,12 +17,7 @@ export default function ChatError({
   }, [error]);
 
   return (
-    <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
-      {/* Persistent Left Sidebar */}
-      <Sidebar />
-
-      {/* Main Error Area Container */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden justify-center items-center p-6 bg-slate-50/50">
+    <div className="flex-1 flex flex-col h-full overflow-hidden justify-center items-center p-6 bg-slate-50/50">
         <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-lg text-center space-y-6 select-none">
           {/* Error Icon */}
           <div className="h-14 w-14 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mx-auto shadow-sm shadow-red-100">
@@ -75,6 +69,5 @@ export default function ChatError({
           提示：若问题持续存在，您可以尝试清理浏览器本地 LocalStorage 缓存，并检查本地 HNSW 检索模块的运行状态。
         </p>
       </div>
-    </div>
   );
 }

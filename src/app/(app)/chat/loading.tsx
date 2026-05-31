@@ -1,17 +1,11 @@
 "use client";
 
 import React from "react";
-import Sidebar from "@/components/layout/Sidebar";
 import { ShieldCheck } from "lucide-react";
 
 export default function ChatLoading() {
   return (
-    <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
-      {/* Persistent Left Sidebar */}
-      <Sidebar />
-
-      {/* Main Chat Area Container */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+    <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         {/* Chat Page Header Skeleton */}
         <header className="h-16 border-b border-slate-200 bg-white/80 backdrop-blur-md pl-16 pr-6 md:px-6 flex items-center justify-between shrink-0 z-10 select-none">
           <div className="flex items-center gap-3">
@@ -110,6 +104,5 @@ export default function ChatLoading() {
           </div>
         </footer>
       </div>
-    </div>
   );
 }

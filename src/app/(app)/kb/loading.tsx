@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import Sidebar from "@/components/layout/Sidebar";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { 
   Database, 
@@ -20,10 +19,7 @@ export default function KBLoading() {
   const activeKb = knowledgeBases.find(kb => String(kb.id) === activeKbId);
 
   return (
-    <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
-      {/* Sidebar Navigation */}
-      <Sidebar />
-
+    <>
       {/* Main Panel */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         
@@ -171,6 +167,6 @@ export default function KBLoading() {
         )}
 
       </div>
-    </div>
+    </>
   );
 }

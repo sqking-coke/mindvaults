@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import Sidebar from "@/components/layout/Sidebar";
 import CitationDrawer from "@/components/chat/CitationDrawer";
 import ChatMessageList from "@/components/chat/ChatMessageList";
 import ChatInputArea from "@/components/chat/ChatInputArea";
@@ -32,10 +31,7 @@ export default function ChatPage() {
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
   return (
-    <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
-      {/* Persistent Left Sidebar */}
-      <Sidebar />
-
+    <>
       {/* Main Chat Area Container */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         {/* Chat Page Header */}
@@ -117,6 +113,6 @@ export default function ChatPage() {
 
       {/* Slide-out Citation Source Details Panel */}
       <CitationDrawer />
-    </div>
+    </>
   );
 }

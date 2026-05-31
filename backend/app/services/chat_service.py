@@ -256,7 +256,7 @@ async def chat_stream(
         answer=full_answer,
         ref_chunks=[c.model_dump() for c in chunks],
         model_name=settings.LLM_MODEL,
-        thinking_steps=thinking_steps,
+        round_key=round_key,
     )
     db.add(record)
 

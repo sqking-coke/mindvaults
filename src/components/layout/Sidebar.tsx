@@ -39,10 +39,6 @@ export default function Sidebar() {
     renameConversation,
     isGenerating,
     systemConfig,
-    ollamaModels,
-    loadSystemConfig,
-    updateSystemConfig,
-    loadOllamaModels
   } = usemindvaults();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -50,8 +46,9 @@ export default function Sidebar() {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
 
   // 客户端挂载后恢复置顶状态，避免 SSR hydration 不匹配
   useEffect(() => {
@@ -76,78 +73,10 @@ export default function Sidebar() {
   }, [menuConvId]);
   const [deleteConvConfirm, setDeleteConvConfirm] = useState<{ id: string; title: string } | null>(null);
 
-  // 获取真实系统信息
+  // 获取系统信息（后端启动时采集，直接返回缓存）
   useEffect(() => {
-    fetchSystemInfo()
-      .then(setSystemInfo)
-      .catch(() => {});
+    fetchSystemInfo().then(setSystemInfo).catch(() => {});
   }, []);
-
-  // --- Settings Modal & Local States ---
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Local Form States
-  const [provider, setProvider] = useState<"ollama" | "openai">("ollama");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [temperature, setTemperature] = useState(0.3);
-  const [systemPrompt, setSystemPrompt] = useState("");
-  const [chunkSize, setChunkSize] = useState(500);
-  const [chunkOverlap, setChunkOverlap] = useState(50);
-  const [topK, setTopK] = useState(5);
-  const [similarityThreshold, setSimilarityThreshold] = useState(0.7);
-
-  // Fetch config on mount
-  useEffect(() => {
-    if (!systemConfig) {
-      loadSystemConfig();
-    }
-  }, [systemConfig, loadSystemConfig]);
-
-  // Sync state when opening the modal
-  const openSettings = () => {
-    if (systemConfig) {
-      setProvider((systemConfig.llm_provider || "ollama") as "ollama" | "openai");
-      setBaseUrl(systemConfig.llm_base_url || "");
-      setModel(systemConfig.llm_model || "");
-      setApiKey(systemConfig.llm_api_key || "");
-      setTemperature(systemConfig.llm_temperature ?? 0.3);
-      setSystemPrompt(systemConfig.system_prompt || "");
-      setChunkSize(systemConfig.chunk_size ?? 500);
-      setChunkOverlap(systemConfig.chunk_overlap ?? 50);
-      setTopK(systemConfig.top_k ?? 5);
-      setSimilarityThreshold(systemConfig.similarity_threshold ?? 0.7);
-    }
-    // 只在 Ollama 模式下加载本地模型列表
-    if (systemConfig?.llm_provider === "ollama") {
-      loadOllamaModels();
-    }
-    setIsSettingsOpen(true);
-  };
-
-  const handleSaveSettings = async () => {
-    setIsSaving(true);
-    const success = await updateSystemConfig({
-      llm_provider: provider,
-      llm_base_url: baseUrl,
-      llm_model: model,
-      llm_api_key: apiKey,
-      llm_temperature: temperature,
-      system_prompt: systemPrompt,
-      chunk_size: chunkSize,
-      chunk_overlap: chunkOverlap,
-      top_k: topK,
-      similarity_threshold: similarityThreshold,
-    });
-    setIsSaving(false);
-    if (success) {
-      setIsSettingsOpen(false);
-    } else {
-      alert("保存设置失败，请检查参数格式！");
-    }
-  };
 
   const startRename = (id: string, currentTitle: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -273,10 +202,11 @@ export default function Sidebar() {
         <Link
           href="/chat"
           onClick={() => setMobileOpen(false)}
-          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-            isChatActive 
-              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20" 
-              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+            transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 ${
+            isChatActive
+              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20"
+              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
           }`}
         >
           <MessageSquare className="h-5 w-5 shrink-0" />
@@ -285,10 +215,11 @@ export default function Sidebar() {
         <Link
           href="/kb"
           onClick={() => setMobileOpen(false)}
-          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-            isKbActive 
-              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20" 
-              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+            transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 ${
+            isKbActive
+              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20"
+              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
           }`}
         >
           <Database className="h-5 w-5 shrink-0" />
@@ -297,10 +228,11 @@ export default function Sidebar() {
         <Link
           href="/kb/ops"
           onClick={() => setMobileOpen(false)}
-          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-            isOpsActive 
-              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20" 
-              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+            transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 ${
+            isOpsActive
+              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20"
+              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
           }`}
         >
           <Wrench className="h-5 w-5 shrink-0" />
@@ -309,10 +241,11 @@ export default function Sidebar() {
         <Link
           href="/kb/stats"
           onClick={() => setMobileOpen(false)}
-          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-            isStatsActive 
-              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20" 
-              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+            transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 ${
+            isStatsActive
+              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20"
+              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
           }`}
         >
           <BarChart3 className="h-5 w-5 shrink-0" />
@@ -504,16 +437,16 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* System Diagnostics / Metrics Dashboard */}
+      {/* System Diagnostics / Metrics Dashboard — mt-auto pushes to bottom */}
       {!isCollapsed && (
-        <div className="p-3 border-t border-slate-800/80 bg-slate-950/40 shrink-0 select-none">
+        <div className="p-3 border-t border-slate-800/80 bg-slate-950/40 shrink-0 select-none mt-auto">
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-between">
             <span className="flex items-center gap-1">
               <Cpu className="h-3 w-3" />
               本地系统状态
             </span>
             <button
-              onClick={openSettings}
+              onClick={() => router.push("/settings")}
               className="p-1 hover:bg-slate-800 hover:text-indigo-400 rounded-lg text-slate-400 transition-colors focus:outline-none"
               title="大模型与系统设置"
             >
@@ -540,7 +473,7 @@ export default function Sidebar() {
                 <span className="text-slate-200 font-mono">{systemInfo ? `${systemInfo.memory_used} / ${systemInfo.memory_total}` : "检测中..."}</span>
               </div>
               <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-1">
-                <div className="bg-gradient-to-r from-indigo-500 to-violet-500 h-full" style={{ width: `${systemInfo?.memory_percent ?? 44}%` }} />
+                <div className="bg-gradient-to-r from-indigo-500 to-violet-500 h-full" style={{ width: `${systemInfo?.memory_percent || 0}%` }} />
               </div>
             </div>
             {/* Model Name */}
@@ -558,7 +491,7 @@ export default function Sidebar() {
       {isCollapsed && (
         <div className="p-3 border-t border-slate-800 flex justify-center items-center shrink-0">
           <button 
-            onClick={openSettings}
+            onClick={() => router.push("/settings")}
             className="h-6 w-6 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-slate-800 flex items-center justify-center transition-colors focus:outline-none"
             title="系统设置"
           >
@@ -567,294 +500,7 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* --- GLOBAL SETTINGS DIALOG (MODAL) --- */}
-      {isSettingsOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col text-slate-100 max-h-[90vh] animate-fade-in">
-            {/* Header */}
-            <div className="p-4.5 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="font-bold text-slate-100 flex items-center gap-2">
-                <Settings className="h-5 w-6 text-indigo-400" />
-                系统配置
-              </h3>
-              <button 
-                onClick={() => setIsSettingsOpen(false)} 
-                className="text-slate-400 hover:text-slate-200 p-1 hover:bg-slate-800 rounded-lg transition-colors focus:outline-none"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Scrollable Form Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-6">
-              
-              {/* MODULE 1: 大模型推理设置 (Top Module) */}
-              <div className="space-y-4 font-sans text-xs">
-                <div className="border-b border-slate-800 pb-1.5 flex items-center gap-1.5 text-indigo-400 font-bold text-[13px]">
-                  <Cpu className="h-4 w-4" />
-                  <span>大模型推理引擎设置 (LLM Configuration)</span>
-                </div>
-
-                {/* Row 1: LLM Provider selection */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    大模型提供商 (LLM Provider)
-                  </label>
-                  <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProvider("ollama");
-                        setBaseUrl("http://localhost:11434");
-                      }}
-                      className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition-all focus:outline-none ${
-                        provider === "ollama" 
-                          ? "bg-indigo-600 text-white shadow-sm" 
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      本地私有大模型(Ollama)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProvider("openai");
-                        setBaseUrl("https://api.deepseek.com/v1");
-                        if (!model) setModel("deepseek-v4-pro");
-                      }}
-                      className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition-all focus:outline-none ${
-                        provider === "openai" 
-                          ? "bg-indigo-600 text-white shadow-sm" 
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      云服务API (OpenAI 兼容)
-                    </button>
-                  </div>
-                </div>
-
-                {/* Row 2: API base URL */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    API 基础地址 (Base URL)
-                  </label>
-                  <input
-                    type="text"
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder={provider === "ollama" ? "http://localhost:11434" : "https://api.deepseek.com/v1"}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                {/* Row 3: API Key (OpenAI compatible only) */}
-                {provider === "openai" && (
-                  <div className="space-y-1.5">
-                    <label className="block text-[11px] font-bold text-slate-400">
-                      API 密钥 (API Key)
-                    </label>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="请输入云端密钥"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                )}
-
-                {/* Row 4: Inference model name */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    推理模型名称 (Model Name)
-                  </label>
-                  {provider === "ollama" ? (
-                    <select
-                      value={model}
-                      onChange={(e) => setModel(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-sans text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                      <option value="">-- 请选择本地模型 --</option>
-                      {ollamaModels.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                      {!ollamaModels.includes(model) && model && (
-                        <option value={model}>{model} (当前自定义)</option>
-                      )}
-                    </select>
-                  ) : (
-                    <div className="flex gap-1.5">
-                      <select
-                        value={["deepseek-v4-pro", "deepseek-v4-flash", "gpt-4o", "gpt-3.5-turbo"].includes(model) ? model : "custom"}
-                        onChange={(e) => {
-                          if (e.target.value !== "custom") setModel(e.target.value);
-                        }}
-                        className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-sans text-slate-200 focus:outline-none focus:border-indigo-500 max-w-[150px] truncate cursor-pointer"
-                      >
-                        <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
-                        <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
-                        <option value="gpt-4o">gpt-4o</option>
-                        <option value="custom">自定义输入</option>
-                      </select>
-                      <input
-                        type="text"
-                        value={model}
-                        onChange={(e) => setModel(e.target.value)}
-                        placeholder="自定义代号"
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Row 5: Temperature slider */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[11px] font-bold text-slate-400">
-                      生成温度创造力 (Temperature)
-                    </label>
-                    <span className="font-mono font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
-                      {temperature.toFixed(1)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.5"
-                      step="0.1"
-                      value={temperature}
-                      onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                      className="flex-1 h-1.5 bg-slate-850 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                    />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] text-slate-500 font-bold shrink-0">精确 (0.0)</span>
-                    <span className="text-[10px] text-slate-500 font-bold shrink-0">自由 (1.5)</span>
-                  </div>
-                </div>
-
-                {/* Row 6: System Prompt customizer */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    全局系统核心提示词 (System Prompt)
-                  </label>
-                  <textarea
-                    value={systemPrompt}
-                    onChange={(e) => setSystemPrompt(e.target.value)}
-                    rows={3}
-                    placeholder="作为 AI 问答助手的引导性人设规则..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-sans text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* MODULE 2: 知识库切片参数设置 (Bottom Module) */}
-              <div className="border-t border-slate-800 pt-5 space-y-4 font-sans text-xs">
-                <div className="border-b border-slate-800 pb-1.5 flex items-center gap-1.5 text-indigo-400 font-bold text-[13px]">
-                  <Sliders className="h-4 w-4" />
-                  <span>知识库切片与检索设置 (RAG Configuration)</span>
-                </div>
-
-                {/* Row 1: Chunk Size */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    文档切片大小 (Chunk Size)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={chunkSize}
-                      onChange={(e) => setChunkSize(parseInt(e.target.value) || 0)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-mono text-slate-200 focus:outline-none focus:border-indigo-500 pr-10"
-                    />
-                    <span className="absolute right-3 top-1.5 text-[10px] text-slate-500 font-bold">字</span>
-                  </div>
-                  <span className="text-[9px] text-slate-500 block leading-relaxed">每个分块的最大字数限制，推荐 400 ~ 800</span>
-                </div>
-
-                {/* Row 2: Chunk Overlap */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    相邻重叠长度 (Chunk Overlap)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={chunkOverlap}
-                      onChange={(e) => setChunkOverlap(parseInt(e.target.value) || 0)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-mono text-slate-200 focus:outline-none focus:border-indigo-500 pr-10"
-                    />
-                    <span className="absolute right-3 top-1.5 text-[10px] text-slate-500 font-bold">字</span>
-                  </div>
-                  <span className="text-[9px] text-slate-500 block leading-relaxed">截断重叠字数（防止切段割裂句义，建议设为 10% 大小）</span>
-                </div>
-
-                {/* Row 3: Top K */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    召回分块总量 (Top K)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={topK}
-                      onChange={(e) => setTopK(parseInt(e.target.value) || 1)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-mono text-slate-200 focus:outline-none focus:border-indigo-500 pr-10"
-                    />
-                    <span className="absolute right-3 top-1.5 text-[10px] text-slate-500 font-bold">块</span>
-                  </div>
-                  <span className="text-[9px] text-slate-500 block leading-relaxed">每次问答喂给大模型的最大相关分块数</span>
-                </div>
-
-                {/* Row 4: Similarity threshold */}
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-slate-400">
-                    检索匹配阈值 (Similarity Score)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0.0"
-                      max="1.0"
-                      value={similarityThreshold}
-                      onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 font-mono text-slate-200 focus:outline-none focus:border-indigo-500 pr-12"
-                    />
-                    <span className="absolute right-3 top-1.5 text-[10px] text-slate-500 font-bold">Score</span>
-                  </div>
-                  <span className="text-[9px] text-slate-500 block leading-relaxed">低于该分数的向量召回将被过滤丢弃，防止无效噪点段落污染</span>
-                </div>
-
-                <div className="p-3 bg-indigo-500/5 rounded-xl border border-indigo-500/10 text-[10px] text-indigo-400 leading-relaxed">
-                  ⚙️ <strong>提示</strong>：修改分块（Size / Overlap）仅对**全新上传的物理文档**生效。已建立的数据库旧文档不会自动重塑（重塑旧文档需前往「知识库管理 ➔ 运维诊断」页触发全量重索引）。
-                </div>
-              </div>
-
-            </div>
-
-            {/* Footer Buttons */}
-            <div className="p-4 border-t border-slate-800 flex items-center justify-end gap-2.5 bg-slate-950/10">
-              <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="px-4 py-1.5 rounded-lg border border-slate-800 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-850 transition-all focus:outline-none"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSaveSettings}
-                disabled={isSaving}
-                className="px-5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white shadow-lg shadow-indigo-500/10 hover:shadow-indigo-500/20 transition-all flex items-center gap-1 focus:outline-none"
-              >
-                {isSaving ? "正在保存..." : "保存配置"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Settings moved to dedicated /settings page */}
 
       {/* 侧边栏内删除确认弹窗 */}
       {deleteConvConfirm && (

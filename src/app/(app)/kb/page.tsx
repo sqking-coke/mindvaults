@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import Sidebar from "@/components/layout/Sidebar";
 import KBDashboard from "@/components/kb/KBDashboard";
 import DocumentTable from "@/components/kb/DocumentTable";
 import UploadZone from "@/components/kb/UploadZone";
@@ -44,10 +43,7 @@ export default function KBPage() {
   const activeKb = knowledgeBases.find(kb => String(kb.id) === activeKbId);
 
   return (
-    <div className="h-full flex bg-slate-50 overflow-hidden font-sans">
-      {/* Sidebar Navigation */}
-      <Sidebar />
-
+    <>
       {/* Main Panel */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         
@@ -193,6 +189,6 @@ export default function KBPage() {
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }

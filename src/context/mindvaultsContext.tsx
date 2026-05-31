@@ -314,6 +314,10 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteConversation = useCallback(
     (id: string) => {
+      // 空会话（无消息）仅存在于前端，跳过远端删除
+      const conv = conversations.find((c) => c.id === id);
+      const needsBackendDelete = conv && conv.messages.length > 0;
+
       setConversations((prev) => {
         const remaining = prev.filter((c) => c.id !== id);
         if (activeConversationId === id) {
@@ -321,6 +325,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
         return remaining;
       });
+
+      if (!needsBackendDelete) return;
 
       // 同步删除后端数据
       apiDeleteSession(id)
@@ -330,7 +336,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           showToast("删除失败，请重试", "error");
         });
     },
-    [activeConversationId],
+    [activeConversationId, conversations],
   );
 
   const renameConversation = useCallback((id: string, title: string) => {

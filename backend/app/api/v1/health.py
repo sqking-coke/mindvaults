@@ -9,6 +9,54 @@ from app.core.redis import get_redis
 
 router = APIRouter(tags=["health"])
 
+router = APIRouter(tags=["health"])
+
+# CPU 信息启动时采集一次（不变）
+_CPU_INFO: dict | None = None
+
+
+def _collect_cpu_info() -> dict:
+    cpu_name = "Unknown"
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            cpu_name = result.stdout.strip()
+    except Exception:
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        cpu_name = line.split(":", 1)[1].strip()
+                        break
+        except Exception:
+            cpu_name = platform.processor() or platform.machine()
+
+    return {
+        "cpu_name": cpu_name,
+        "cpu_cores_logical": psutil.cpu_count(logical=True) or 0,
+        "cpu_cores_physical": psutil.cpu_count(logical=False) or 0,
+    }
+
+
+def _init_cpu_info():
+    global _CPU_INFO
+    if _CPU_INFO is None:
+        _CPU_INFO = _collect_cpu_info()
+        logger.info(f"cpu_info_collected cpu={_CPU_INFO['cpu_name'][:30]}")
+
+
+_init_cpu_info()
+
+
+def _fmt_bytes(b: int) -> str:
+    if b >= 1024 ** 3:
+        return f"{b / (1024**3):.1f} GB"
+    return f"{b / (1024**2):.0f} MB"
+
 
 def _redis_status() -> str:
     return "connected" if settings.REDIS_CACHE_ENABLED else "disabled"
@@ -38,52 +86,15 @@ async def health_check():
     }
 
 
-def _get_cpu_name() -> str:
-    """获取 CPU 名称（跨平台）。"""
-    try:
-        # macOS
-        import subprocess
-        result = subprocess.run(
-            ["sysctl", "-n", "machdep.cpu.brand_string"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
-
-    # Linux fallback
-    try:
-        with open("/proc/cpuinfo") as f:
-            for line in f:
-                if line.startswith("model name"):
-                    return line.split(":", 1)[1].strip()
-    except Exception:
-        pass
-
-    # Generic fallback
-    return platform.processor() or platform.machine() or "Unknown"
-
-
 @router.get("/health/system")
 async def system_info():
-    """返回宿主机 CPU、内存等系统信息。"""
+    """CPU 信息启动时采集，内存信息实时读取。"""
     mem = psutil.virtual_memory()
-    cpu_name = _get_cpu_name()
-
-    def _fmt_bytes(b: int) -> str:
-        if b >= 1024 ** 3:
-            return f"{b / (1024**3):.1f} GB"
-        return f"{b / (1024**2):.0f} MB"
-
     used_pct = round((mem.used / mem.total) * 100) if mem.total > 0 else 0
-
     return {
         "code": 0,
         "data": {
-            "cpu_name": cpu_name,
-            "cpu_cores_logical": psutil.cpu_count(logical=True),
-            "cpu_cores_physical": psutil.cpu_count(logical=False),
+            **_CPU_INFO,
             "memory_total": _fmt_bytes(mem.total),
             "memory_used": _fmt_bytes(mem.used),
             "memory_percent": used_pct,

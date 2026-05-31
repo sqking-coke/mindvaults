@@ -71,6 +71,17 @@ Query: kb_id (必填) ← NEW
 ### `PUT /api/v1/kb/documents/{id}/status` — 切换文档启用/禁用
 ### `POST /api/v1/kb/documents/{id}/reindex` — 重索引
 
+### `GET /api/v1/kb/documents/watch?kb_id=X&timeout=60` — 长轮询文档状态
+有未完成文档时每 2s 检查状态变更，变化或超时返回。用于前端实时更新摄入进度。
+
+### `GET /api/v1/kb/documents/{id}/content` — 原文预览
+返回文档原始文本内容，按需读取文件不落库。
+
+```json
+// Response
+{"code":0,"data":{"doc_name":"...","doc_type":"md","content":"...","chars":1234}}
+```
+
 ---
 
 ## 3. 智能问答
@@ -108,10 +119,17 @@ data: {"content":"微服务"}
 ... (streaming tokens)
 
 event: done
-data: {"ref_chunks":[{"chunk_id":42,"doc_name":"arch.md","content":"微服务间通过...","similarity":0.92}]}
+data: {"ref_chunks":[...],"round_key":"a1b2c3d4"}
 ```
 
+> `round_key`: 本轮唯一标识，对应 Redis `mv:thinking:{session_id}:{round_key}` 推理步骤 key。
+
+### `GET /api/v1/kb/chat/thinking/{session_id}?round_key=X` — 推理步骤
+按轮次查询推理过程。`round_key` 为空时返回整个会话的所有步骤（不推荐）。
+
 ### `GET /api/v1/kb/chat/history?session_id=<uuid>` — 问答历史
+> Response 每条记录含 `round_key` 字段。
+
 ### `GET /api/v1/kb/chat/sessions` — 会话列表
 ### `DELETE /api/v1/kb/chat/sessions/{session_id}` — 删除会话
 
@@ -176,7 +194,8 @@ multipart/form-data: files[] + kb_id
 |-----------------|--------------|------|
 | `KnowledgeBase` | `KbInfo` | 对齐，新增后端接口 |
 | `DocumentRecord` | `DocumentResponse` | kbId 现在来自后端 |
-| `Message` | `ChatMessage` | 新增 thinkingSteps |
+| `Message` | `ChatMessage` | 新增 thinkingSteps / roundKey |
 | `Citation` | `RefChunk` | 前端计算 index |
+| `DocumentRecord` | `DocumentResponse` | 新增 file_size / status_detail |
 | `Conversation` | `Session` | id → session_id |
 | `SystemConfig` | `ConfigResponse` | llm_model 等动态字段 |
