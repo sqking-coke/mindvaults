@@ -64,6 +64,8 @@ async def get_config(kb_id: int, db: AsyncSession = Depends(get_db)):
         "llm_provider": cfg.llm_provider, "llm_base_url": cfg.llm_base_url,
         "llm_model": cfg.llm_model, "llm_api_key": _mask_api_key(cfg.llm_api_key),
         "llm_temperature": cfg.llm_temperature, "system_prompt": cfg.system_prompt,
+        "embedding_provider": cfg.embedding_provider, "embedding_base_url": cfg.embedding_base_url,
+        "embedding_model": cfg.embedding_model, "embedding_api_key": _mask_api_key(cfg.embedding_api_key),
     })
 
 
@@ -78,4 +80,6 @@ async def update_config(kb_id: int, body: KbConfigRequest, db: AsyncSession = De
         "llm_provider": cfg.llm_provider, "llm_base_url": cfg.llm_base_url,
         "llm_model": cfg.llm_model, "llm_api_key": _mask_api_key(cfg.llm_api_key),
         "llm_temperature": cfg.llm_temperature, "system_prompt": cfg.system_prompt,
+        "embedding_provider": cfg.embedding_provider, "embedding_base_url": cfg.embedding_base_url,
+        "embedding_model": cfg.embedding_model, "embedding_api_key": _mask_api_key(cfg.embedding_api_key),
     })

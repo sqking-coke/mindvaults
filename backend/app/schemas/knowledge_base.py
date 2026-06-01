@@ -60,3 +60,7 @@ class KbConfigRequest(BaseModel):
     llm_api_key: str | None = None
     llm_temperature: float | None = None
     system_prompt: str | None = None
+    embedding_provider: str | None = None
+    embedding_base_url: str | None = None
+    embedding_model: str | None = None
+    embedding_api_key: str | None = None

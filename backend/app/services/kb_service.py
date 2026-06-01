@@ -182,6 +182,19 @@ async def update_kb_config(db: AsyncSession, kb_id: int, req: KbConfigRequest) -
     if req.system_prompt is not None:
         cfg.system_prompt = req.system_prompt.strip()
 
+    if req.embedding_provider is not None:
+        cfg.embedding_provider = req.embedding_provider.strip().lower()
+    if req.embedding_base_url is not None:
+        cfg.embedding_base_url = req.embedding_base_url.strip()
+    if req.embedding_model is not None:
+        cfg.embedding_model = req.embedding_model.strip()
+    if req.embedding_api_key is not None:
+        key = req.embedding_api_key.strip()
+        if key and "••" not in key:
+            cfg.embedding_api_key = key
+        elif not key:
+            cfg.embedding_api_key = ""
+
     await db.commit()
     await db.refresh(cfg)
     return cfg
