@@ -29,9 +29,9 @@ export default function KBPage() {
   const [isImportOpen, setIsImportOpen] = useState(false);
 
   // Toast notifications state
-  const [toasts, setToasts] = useState<{ id: string; message: string; type: "info" | "success" | "warning" }[]>([]);
+  const [toasts, setToasts] = useState<{ id: string; message: string; type: "info" | "success" | "error" | "warning" }[]>([]);
 
-  const showToast = (message: string, type: "info" | "success" | "warning" = "info") => {
+  const showToast = (message: string, type: "info" | "success" | "error" | "warning" = "info") => {
     const id = `toast-${Date.now()}-${Math.random()}`;
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
@@ -133,15 +133,19 @@ export default function KBPage() {
                         </p>
                       </div>
                     </div>
-                    {process.env.NEXT_PUBLIC_DEMO_MODE !== "true" && (
-                      <button
-                        onClick={() => setIsImportOpen(true)}
-                        className="mt-4 w-full py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 hover:text-violet-700 rounded-xl text-xs font-semibold text-violet-600 transition-all focus:outline-none flex items-center justify-center gap-1.5 shadow-sm"
-                      >
-                        <FolderOpen className="h-4 w-4" />
-                        立即导入 Obsidian Vault
-                      </button>
-                    )}
+                    <button
+                      onClick={() => {
+                        if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+                          showToast("演示环境不支持导入 Vault，请自部署后体验完整功能", "warning");
+                          return;
+                        }
+                        setIsImportOpen(true);
+                      }}
+                      className="mt-4 w-full py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 hover:text-violet-700 rounded-xl text-xs font-semibold text-violet-600 transition-all focus:outline-none flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                      立即导入 Obsidian Vault
+                    </button>
                   </div>
                 </div>
                 <DocumentTable />

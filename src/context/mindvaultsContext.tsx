@@ -75,8 +75,8 @@ interface mindvaultsContextType {
   loadSystemConfig: () => Promise<void>;
   updateSystemConfig: (config: SystemConfigRequest) => Promise<boolean>;
   loadOllamaModels: () => Promise<void>;
-  toast: { message: string; type: "success" | "error" } | null;
-  showToast: (message: string, type?: "success" | "error") => void;
+  toast: { message: string; type: "success" | "error" | "warning" } | null;
+  showToast: (message: string, type?: "success" | "error" | "warning") => void;
   configRequiredDialog: boolean;
   dismissConfigRequiredDialog: () => void;
 }
@@ -103,12 +103,12 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
 
   // --- Toast notification ---
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "warning" } | null>(null);
 
   // --- Config required dialog ---
   const [configRequiredDialog, setConfigRequiredDialog] = useState(false);
   const dismissConfigRequiredDialog = useCallback(() => setConfigRequiredDialog(false), []);
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+  const showToast = useCallback((message: string, type: "success" | "error" | "warning" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
@@ -177,9 +177,10 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const kbId = (restoredKbId && kbs.some(k => String(k.id) === restoredKbId))
           ? Number(restoredKbId)
           : (kbs.length > 0 ? kbs[0].id : 1);
+        const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
         const [docResult, sessions] = await Promise.all([
           fetchDocuments(1, 50, kbId),
-          fetchSessions(),
+          isDemo ? Promise.resolve([] as Awaited<ReturnType<typeof fetchSessions>>) : fetchSessions(),
         ]);
         if (cancelled) return;
 

@@ -5,7 +5,7 @@ import { usemindvaults } from "@/context/mindvaultsContext";
 import { Upload } from "lucide-react";
 
 interface UploadZoneProps {
-  showToast: (message: string, type?: "info" | "success" | "warning") => void;
+  showToast: (message: string, type?: "success" | "error" | "warning") => void;
 }
 
 export default function UploadZone({ showToast }: UploadZoneProps) {
@@ -26,7 +26,7 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
       return;
     }
     uploadDocuments(activeKbId, files);
-    showToast(`正在上传 ${files.length} 个文件到后端...`, "info");
+    showToast(`正在上传 ${files.length} 个文件到后端...`, "success");
   };
 
   const onDragOver = (e: React.DragEvent) => {
