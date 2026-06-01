@@ -330,14 +330,16 @@ SAMPLE_KB = [
 
 async def seed():
     async with AsyncSessionLocal() as db:
-        # 检查是否已有数据
-        result = await db.execute(text("SELECT COUNT(*) FROM kb_knowledge_bases"))
-        count = result.scalar()
-        if count > 0:
-            print("[seed] 数据库已有数据，跳过种子写入")
-            return
-
-        print("[seed] Demo 模式：开始写入示例数据...")
+        # 每次发布清空旧数据重新写入
+        print("[seed] Demo 模式：清除旧数据...")
+        await db.execute(text("DELETE FROM kb_qa_records"))
+        await db.execute(text("DELETE FROM kb_sessions"))
+        await db.execute(text("DELETE FROM kb_chunks"))
+        await db.execute(text("DELETE FROM kb_documents"))
+        await db.execute(text("DELETE FROM kb_knowledge_bases"))
+        await db.execute(text("DELETE FROM kb_config"))
+        await db.commit()
+        print("[seed] 旧数据已清除，开始写入示例数据...")
         upload_dir = Path(settings.UPLOAD_DIR)
         upload_dir.mkdir(parents=True, exist_ok=True)
         doc_count = 0
