@@ -108,15 +108,15 @@ async def chat_stream(
     base_url = cfg.llm_base_url if cfg.llm_base_url is not None else settings.LLM_BASE_URL
     threshold = cfg.similarity_threshold if cfg.similarity_threshold is not None else 0.5
 
-    # Embedding 配置：优先 DB，回退 .env；same_as_llm 时复用 LLM Key
+    # Embedding 配置：same_as_llm 时 URL/Key 优先走 settings 专用配置，其次复用 LLM
     emb_provider = cfg.embedding_provider if cfg.embedding_provider else "same_as_llm"
     if emb_provider == "same_as_llm":
-        emb_api_key = api_key
-        emb_base_url = base_url
-        emb_provider_for_call = provider
+        emb_api_key = settings.EMBEDDING_API_KEY or api_key
+        emb_base_url = settings.EMBEDDING_BASE_URL or base_url
+        emb_provider_for_call = "openai"
     else:
-        emb_api_key = cfg.embedding_api_key or settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
-        emb_base_url = cfg.embedding_base_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL
+        emb_api_key = cfg.embedding_api_key or settings.EMBEDDING_API_KEY or api_key
+        emb_base_url = cfg.embedding_base_url or settings.EMBEDDING_BASE_URL or base_url
         emb_provider_for_call = emb_provider
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
 
@@ -138,13 +138,13 @@ async def chat_stream(
         yield ("error", json.dumps({"code": 9001, "message": "数据库查询失败，请稍后重试"}))
         return
 
-    # 确定 kb_id：请求 > 会话 > 默认 1
-    kb_id = req.kb_id or (session.kb_id if session else 1)
+    # 确定 kb_id：请求 > 会话 > 默认 1（0 表示全库检索）
+    kb_id = req.kb_id if req.kb_id is not None else (session.kb_id if session else 1)
 
     if session is None:
         session = KbSession(
             session_id=req.session_id,
-            kb_id=kb_id,
+            kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
             title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
         )
         db.add(session)
@@ -178,14 +178,16 @@ async def chat_stream(
         yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
         return
 
-    # — 3. 检索 —
+    # — 3. 检索（粗排 top_k*2，后续 Reranker 精排）—
+    cfg = await get_config(db)
+    k = cfg.top_k if cfg.top_k is not None else 5
     step = {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)}
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
 
-    chunks = await retrieve_chunks(db, query_embedding, kb_id=kb_id)
+    candidate_chunks = await retrieve_chunks(db, query_embedding, kb_id=kb_id, top_k=k * 2)
 
-    if not chunks:
+    if not candidate_chunks:
         # 落库：即使未检索到文档，也保存问答记录，确保对话历史完整
         record = KbQaRecord(
             session_id=session.id,
@@ -202,6 +204,28 @@ async def chat_stream(
             json.dumps({"code": 4001, "message": "未找到与问题相关的文档内容"}),
         )
         return
+
+    # — 3.5 Reranker 精排 —
+    try:
+        from app.services.reranker_service import rerank
+        chunk_dicts = [{"content": c.content, "chunk_id": c.chunk_id, "doc_name": c.doc_name, "similarity": c.similarity, "page": c.page} for c in candidate_chunks]
+        ranked_dicts = await rerank(req.question, chunk_dicts, top_k=k)
+        chunks = [
+            RefChunk(
+                chunk_id=d["chunk_id"],
+                doc_name=d["doc_name"],
+                content=d["content"],
+                similarity=d.get("rerank_score", d["similarity"]),
+                page=d.get("page"),
+            )
+            for d in ranked_dicts
+        ]
+        step = {"phase": "rerank", "message": f"Reranker 精排完成，选出 {len(chunks)} 个最相关片段", "elapsed_ms": int((time.time() - t_start) * 1000)}
+        await _push_thinking(req.session_id, round_key, step)
+        yield ("progress", json.dumps(step))
+    except Exception:
+        # Reranker 不可用时退化为原始排序
+        chunks = candidate_chunks[:k]
 
     # 按文档去重汇总
     from collections import defaultdict

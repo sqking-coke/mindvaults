@@ -36,9 +36,19 @@ async def _pgvector_search(
     thresh: float,
     kb_id: int,
 ) -> list[RefChunk]:
-    """pgvector HNSW 语义检索（限定 KB），返回相似切片列表（按相似度降序）。"""
+    """pgvector HNSW 语义检索，返回相似切片列表（按相似度降序）。
+
+    kb_id=0 时检索全部知识库，否则限定指定 KB。
+    """
     vec = type_coerce(query_embedding, Vector(1024))
     similarity_expr = 1.0 - func.cosine_distance(KbChunk.embedding, vec)
+
+    filters = [
+        KbDocument.status == DOC_STATUS_COMPLETED,
+        func.cosine_distance(KbChunk.embedding, vec) <= 1.0 - thresh,
+    ]
+    if kb_id > 0:
+        filters.append(KbDocument.kb_id == kb_id)
 
     stmt = (
         select(
@@ -49,11 +59,7 @@ async def _pgvector_search(
             KbChunk.page,
         )
         .join(KbDocument, KbChunk.document_id == KbDocument.id)
-        .where(
-            KbDocument.status == DOC_STATUS_COMPLETED,
-            KbDocument.kb_id == kb_id,
-            func.cosine_distance(KbChunk.embedding, vec) <= 1.0 - thresh,
-        )
+        .where(*filters)
         .order_by(similarity_expr.desc())
         .limit(k)
     )
@@ -80,9 +86,9 @@ async def retrieve_chunks(
     top_k: int | None = None,
     threshold: float | None = None,
 ) -> list[RefChunk]:
-    """语义检索（Redis 缓存 + pgvector 降级）。限定 KB 范围。"""
-    kb = kb_id or 1
-    cfg = await get_config_by_kb(db, kb)
+    """语义检索（Redis 缓存 + pgvector 降级）。kb_id=0 检索全库。"""
+    kb = kb_id if kb_id is not None and kb_id > 0 else 0
+    cfg = await get_config_by_kb(db, max(kb, 1))  # kb=0 时用默认 KB 的配置
     k = top_k if top_k is not None else cfg.top_k
     thresh = threshold if threshold is not None else cfg.similarity_threshold
 
@@ -92,9 +98,9 @@ async def retrieve_chunks(
         try:
             redis = await get_redis()
             cache = CacheService(redis)
-            cached = await cache.get_retrieval(query_embedding)
+            cached = await cache.get_retrieval(query_embedding, kb_id=kb)
             if cached:
-                log_event("retrieval_cache_hit", chunks=len(cached))
+                log_event("retrieval_cache_hit", kb_id=kb, chunks=len(cached))
                 return cached
         except Exception:
             logger.warning("redis_unavailable fallback=pgvector")
@@ -105,7 +111,7 @@ async def retrieve_chunks(
     # —— 回写缓存 ——
     if cache is not None and chunks:
         try:
-            await cache.set_retrieval(query_embedding, chunks)
+            await cache.set_retrieval(query_embedding, chunks, kb_id=kb)
         except Exception:
             logger.warning("retrieval_cache_write_failed")
 

@@ -72,8 +72,20 @@ export default function Sidebar() {
   }, [menuConvId]);
   const [deleteConvConfirm, setDeleteConvConfirm] = useState<{ id: string; title: string } | null>(null);
 
-  // 获取系统信息（后端启动时采集，直接返回缓存）
+  // 获取系统信息（Demo 模式直接展示预设配置）
   useEffect(() => {
+    const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+    if (isDemo) {
+      setSystemInfo({
+        cpu_name: "Apple M4 Ultra",
+        cpu_cores_logical: 32,
+        cpu_cores_physical: 24,
+        memory_total: "256 GB",
+        memory_used: "58.3 GB",
+        memory_percent: 22.8,
+      });
+      return;
+    }
     fetchSystemInfo().then(setSystemInfo).catch(() => {});
   }, []);
 
@@ -148,7 +160,7 @@ export default function Sidebar() {
         `}
       >
         {/* Brand Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800 select-none shrink-0">
+        <div className={`flex border-b border-slate-800 select-none shrink-0 ${isCollapsed ? "flex-col items-center py-3 gap-2 h-auto" : "h-16 items-center justify-between px-4"}`}>
         {!isCollapsed && (
           <div className="flex items-center gap-2">
             <img src="/logo.svg" alt="mindvaults" width={36} height={36} className="h-9 w-9 rounded-xl shadow-lg shadow-indigo-500/20" />
@@ -159,9 +171,9 @@ export default function Sidebar() {
           </div>
         )}
         {isCollapsed && (
-          <img src="/logo.svg" alt="mindvaults" width={36} height={36} className="h-9 w-9 rounded-xl mx-auto shadow-md" />
+          <img src="/logo.svg" alt="mindvaults" width={28} height={28} className="h-7 w-7 rounded-lg" />
         )}
-        <button 
+        <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           aria-label={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
           aria-expanded={!isCollapsed}
