@@ -13,14 +13,15 @@ async def embed_text(
     api_key: str | None = None,
     base_url: str | None = None,
     provider: str | None = None,
+    model: str | None = None,
 ) -> list[float]:
     """生成文本向量，兼容 Ollama 原生 & OpenAI 兼容 API.
 
-    可选传入 api_key/base_url/provider 覆盖 settings 默认值（用于 DB 动态配置）。
+    可选传入 api_key/base_url/provider/model 覆盖 settings 默认值（用于 DB 动态配置）。
     """
     active_provider = provider if provider is not None else settings.EMBEDDING_PROVIDER
     if active_provider == "openai":
-        return await _embed_openai(text, api_key=api_key, base_url=base_url)
+        return await _embed_openai(text, api_key=api_key, base_url=base_url, model=model)
     else:
         return await _embed_ollama(text, base_url=base_url)
 
@@ -32,21 +33,25 @@ async def embed_batch(
     api_key: str | None = None,
     base_url: str | None = None,
     provider: str | None = None,
+    model: str | None = None,
 ) -> list[list[float]]:
     """批量生成文本向量。OpenAI 兼容 API 使用 array input；
     Ollama 不支持批量，退化为并发单条调用。
     单次请求超过 _BATCH_CHUNK_SIZE 条时自动拆分为多次请求。
 
-    可选传入 api_key/base_url/provider 覆盖 settings 默认值。
+    可选传入 api_key/base_url/provider/model 覆盖 settings 默认值。
     """
     if not texts:
         return []
+    active_model = model or settings.EMBEDDING_MODEL
     active_provider = provider if provider is not None else settings.EMBEDDING_PROVIDER
     if active_provider == "openai":
         all_embeddings = []
         for i in range(0, len(texts), _BATCH_CHUNK_SIZE):
             batch = texts[i:i + _BATCH_CHUNK_SIZE]
-            all_embeddings.extend(await _embed_openai_batch(batch, api_key=api_key, base_url=base_url))
+            all_embeddings.extend(await _embed_openai_batch(
+                batch, api_key=api_key, base_url=base_url, model=active_model,
+            ))
         return all_embeddings
     else:
         # Ollama 退化为并发单条
@@ -81,7 +86,7 @@ async def _embed_ollama(text: str, base_url: str | None = None) -> list[float]:
         raise EmbeddingUnavailableError(f"Embedding 模型不可用: {exc}")
 
 
-async def _embed_openai(text: str, api_key: str | None = None, base_url: str | None = None) -> list[float]:
+async def _embed_openai(text: str, api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> list[float]:
     """OpenAI 兼容 Embedding API (POST /embeddings).
 
     支持 OpenAI / DeepSeek / 通义千问 / 本地 vLLM 等兼容接口。
@@ -96,7 +101,7 @@ async def _embed_openai(text: str, api_key: str | None = None, base_url: str | N
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {active_api_key}"}
 
     payload = {
-        "model": settings.EMBEDDING_MODEL,
+        "model": model or settings.EMBEDDING_MODEL,
         "input": text,
     }
 
@@ -117,7 +122,7 @@ async def _embed_openai(text: str, api_key: str | None = None, base_url: str | N
         raise EmbeddingUnavailableError(f"Embedding 模型不可用: {exc}")
 
 
-async def _embed_openai_batch(texts: list[str], api_key: str | None = None, base_url: str | None = None) -> list[list[float]]:
+async def _embed_openai_batch(texts: list[str], api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> list[list[float]]:
     """OpenAI 兼容批量 Embedding (POST /v1/embeddings with array input)."""
     active_base = base_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL
     base = active_base.rstrip('/')
@@ -128,7 +133,7 @@ async def _embed_openai_batch(texts: list[str], api_key: str | None = None, base
         raise LLMConfigRequiredError("请先配置 Embedding API Key，否则无法进行文档向量化")
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {active_api_key}"}
 
-    payload = {"model": settings.EMBEDDING_MODEL, "input": texts}
+    payload = {"model": model or settings.EMBEDDING_MODEL, "input": texts}
 
     try:
         async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
