@@ -17,14 +17,8 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-
   const handleFiles = (files: File[]) => {
     if (!activeKbId || files.length === 0) return;
-    if (isDemo) {
-      showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
-      return;
-    }
     uploadDocuments(activeKbId, files);
     showToast(`正在上传 ${files.length} 个文件到后端...`, "info");
   };

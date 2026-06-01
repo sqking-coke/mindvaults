@@ -52,7 +52,6 @@ async def upload_vault_endpoint(
     3. 将处理后的文本写入暂存区，并记录文档路径和状态
     4. 自动调度后台切片及向量计算管道
     """
-    _demo_guard("Obsidian Vault 文件夹上传导入")
     try:
         # 仅处理包含 .md 的文件（支持部分相对路径情况如 `MyVault/Note.md` 或直接文件名）
         md_files = [f for f in files if f.filename and f.filename.lower().endswith(".md")]
