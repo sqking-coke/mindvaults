@@ -79,6 +79,7 @@ interface mindvaultsContextType {
   showToast: (message: string, type?: "success" | "error" | "warning") => void;
   configRequiredDialog: boolean;
   dismissConfigRequiredDialog: () => void;
+  isDemo: boolean;
 }
 
 const mindvaultsContext = createContext<mindvaultsContextType | undefined>(undefined);
@@ -112,6 +113,9 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // Demo 分支直接写死，不依赖运行时 API 检测
+  const [isDemo, setIsDemo] = useState(true);
 
   // --- Dynamic LLM and System configuration ---
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
@@ -177,7 +181,6 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const kbId = (restoredKbId && kbs.some(k => String(k.id) === restoredKbId))
           ? Number(restoredKbId)
           : (kbs.length > 0 ? kbs[0].id : 1);
-        const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
         const [docResult, sessions] = await Promise.all([
           fetchDocuments(1, 50, kbId),
           isDemo ? Promise.resolve([] as Awaited<ReturnType<typeof fetchSessions>>) : fetchSessions(),
@@ -819,6 +822,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         showToast,
         configRequiredDialog,
         dismissConfigRequiredDialog,
+        isDemo,
       }}
     >
       {children}

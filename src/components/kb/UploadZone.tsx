@@ -17,7 +17,7 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const { isDemo } = usemindvaults();
 
   const handleFiles = (files: File[]) => {
     if (!activeKbId || files.length === 0) return;

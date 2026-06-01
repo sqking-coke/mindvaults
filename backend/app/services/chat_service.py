@@ -102,6 +102,7 @@ async def chat_stream(
     # — 0. 提前获取配置 —
     from app.services.retrieval_service import get_config
     cfg = await get_config(db)
+    is_demo = settings.DEMO_MODE  # demo 模式不落库会话和 QA 记录
     provider = cfg.llm_provider if cfg.llm_provider is not None else settings.LLM_PROVIDER
     model = cfg.llm_model if cfg.llm_model is not None else settings.LLM_MODEL
     api_key = cfg.llm_api_key if cfg.llm_api_key is not None else settings.LLM_API_KEY
@@ -142,14 +143,23 @@ async def chat_stream(
     kb_id = req.kb_id if req.kb_id is not None else (session.kb_id if session else 1)
 
     if session is None:
-        session = KbSession(
-            session_id=req.session_id,
-            kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
-            title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
-        )
-        db.add(session)
-        await db.flush()
-        await db.commit()  # 立即提交会话创建，释放锁，后续 LLM 失败不影响会话存在
+        if is_demo:
+            # demo 模式不落库，用占位 session 避免后续 None 引用
+            session = KbSession(
+                session_id=req.session_id,
+                kb_id=max(kb_id, 1),
+                title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
+                id=0,
+            )
+        else:
+            session = KbSession(
+                session_id=req.session_id,
+                kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
+                title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
+            )
+            db.add(session)
+            await db.flush()
+            await db.commit()  # 立即提交会话创建，释放锁，后续 LLM 失败不影响会话存在
 
     step = {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}
     await _push_thinking(req.session_id, round_key, step)
@@ -165,16 +175,17 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
-        record = KbQaRecord(
-            session_id=session.id,
-            question=req.question,
-            answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
-            ref_chunks=[],
-            model_name=settings.LLM_MODEL,
-            round_key=round_key,
-        )
-        db.add(record)
-        await db.commit()
+        if not is_demo:
+            record = KbQaRecord(
+                session_id=session.id,
+                question=req.question,
+                answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
+                ref_chunks=[],
+                model_name=settings.LLM_MODEL,
+                round_key=round_key,
+            )
+            db.add(record)
+            await db.commit()
         yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
         return
 
@@ -188,17 +199,17 @@ async def chat_stream(
     candidate_chunks = await retrieve_chunks(db, query_embedding, kb_id=kb_id, top_k=k * 2)
 
     if not candidate_chunks:
-        # 落库：即使未检索到文档，也保存问答记录，确保对话历史完整
-        record = KbQaRecord(
-            session_id=session.id,
-            question=req.question,
-            answer="📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。",
-            ref_chunks=[],
-            model_name=settings.LLM_MODEL,
-            round_key=round_key,
-        )
-        db.add(record)
-        await db.commit()
+        if not is_demo:
+            record = KbQaRecord(
+                session_id=session.id,
+                question=req.question,
+                answer="📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。",
+                ref_chunks=[],
+                model_name=settings.LLM_MODEL,
+                round_key=round_key,
+            )
+            db.add(record)
+            await db.commit()
         yield (
             "error",
             json.dumps({"code": 4001, "message": "未找到与问题相关的文档内容"}),
@@ -263,7 +274,7 @@ async def chat_stream(
     yield ("progress", json.dumps(step))
 
     context = _build_context(chunks)
-    history = await _build_history(db, session.id)
+    history = await _build_history(db, session.id) if not is_demo else ""
     user_prompt = f"参考文档：\n\n{context}\n{history}\n用户问题：{req.question}\n\n请回答："
 
     full_answer = ""
@@ -274,36 +285,37 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5001
         logger.error(f"rag_llm_failed session_id={req.session_id} provider={provider} model={model} error=\"{exc}\"")
-        # 落库：保存已生成的部分内容 + 错误信息
+        if not is_demo:
+            record = KbQaRecord(
+                session_id=session.id,
+                question=req.question,
+                answer=full_answer + f"\n\n[生成中断] {exc}",
+                ref_chunks=[c.model_dump() for c in chunks],
+                model_name=settings.LLM_MODEL,
+                round_key=round_key,
+            )
+            db.add(record)
+            await db.commit()
+        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
+        return
+
+    # — 5. 保存 QA 记录 —
+    if not is_demo:
         record = KbQaRecord(
             session_id=session.id,
             question=req.question,
-            answer=full_answer + f"\n\n[生成中断] {exc}",
+            answer=full_answer,
             ref_chunks=[c.model_dump() for c in chunks],
             model_name=settings.LLM_MODEL,
             round_key=round_key,
         )
         db.add(record)
+
+        # 更新会话标题（首次问答后）
+        if session.title.startswith(req.question[:50]):
+            session.title = req.question[:30] + ("..." if len(req.question) > 30 else "")
+
         await db.commit()
-        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
-        return
-
-    # — 5. 保存 QA 记录 —
-    record = KbQaRecord(
-        session_id=session.id,
-        question=req.question,
-        answer=full_answer,
-        ref_chunks=[c.model_dump() for c in chunks],
-        model_name=settings.LLM_MODEL,
-        round_key=round_key,
-    )
-    db.add(record)
-
-    # 更新会话标题（首次问答后）
-    if session.title.startswith(req.question[:50]):
-        session.title = req.question[:30] + ("..." if len(req.question) > 30 else "")
-
-    await db.commit()
 
     elapsed_ms = int((time.time() - t_start) * 1000)
     logger.info(

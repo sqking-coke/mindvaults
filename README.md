@@ -19,7 +19,7 @@
 ---
 
 <p align="center">
-  <img src="public/screenshots/chat.jpg" alt="mindvaults 对话界面" width="80%" />
+  <img src="public/screenshots/chat.jpg" alt="mindvaults 对话界面" />
 </p>
 
 ## 这是什么
@@ -42,17 +42,17 @@ flowchart LR
 
 ## 知识库
 <p align="center">
-  <img src="public/screenshots/kb.jpg" alt="mindvaults 知识库管理" width="80%" />
+  <img src="public/screenshots/kb.jpg" alt="mindvaults 知识库管理" />
 </p>
 
 ## 推理过程
 <p align="center">
-  <img src="public/screenshots/thinking.jpg" alt="mindvaults 智能推理过程" width="80%" />
+  <img src="public/screenshots/thinking.jpg" alt="mindvaults 智能推理过程" />
 </p>
 
 ## 引用溯源
 <p align="center">
-  <img src="public/screenshots/citation.jpg" alt="mindvaults 智能推理过程" width="80%" />
+  <img src="public/screenshots/citation.jpg" alt="mindvaults 智能推理过程" />
 </p>
 
 

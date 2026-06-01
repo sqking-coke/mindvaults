@@ -21,7 +21,7 @@ export default function KBDashboard() {
     showToast,
   } = usemindvaults();
 
-  const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const { isDemo } = usemindvaults();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newKbName, setNewKbName] = useState("");
   const [newKbDesc, setNewKbDesc] = useState("");

@@ -9,8 +9,6 @@ from app.core.redis import get_redis
 
 router = APIRouter(tags=["health"])
 
-router = APIRouter(tags=["health"])
-
 # CPU 信息启动时采集一次（不变）
 _CPU_INFO: dict | None = None
 
@@ -80,6 +78,7 @@ async def health_check():
             "status": "ok",
             "database": "connected",
             "redis": redis_status,
+            "demo_mode": settings.DEMO_MODE,
             "embedding_model": settings.EMBEDDING_MODEL,
             "llm_model": settings.LLM_MODEL,
         },

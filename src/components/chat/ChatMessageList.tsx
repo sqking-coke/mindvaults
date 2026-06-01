@@ -45,7 +45,7 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
   const [collapsedThinkings, setCollapsedThinkings] = useState<Set<string>>(new Set());
 
   // 高频问题（Demo 模式不调 API，直接用预设模板）
-  const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  const { isDemo } = usemindvaults();
   const [frequentQuestions, setFrequentQuestions] = useState<Array<{ question: string; count: number }>>([]);
   useEffect(() => {
     if (isDemo) return; // 演示模式跳过 API 调用

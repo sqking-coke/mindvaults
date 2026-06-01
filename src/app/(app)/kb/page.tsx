@@ -21,7 +21,8 @@ export default function KBPage() {
     knowledgeBases,
     activeKbId,
     setActiveKbId,
-    isKbLoading
+    isKbLoading,
+    isDemo,
   } = usemindvaults();
 
   // Navigation states
@@ -135,7 +136,7 @@ export default function KBPage() {
                     </div>
                     <button
                       onClick={() => {
-                        if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+                        if (isDemo) {
                           showToast("演示环境不支持导入 Vault，请自部署后体验完整功能", "warning");
                           return;
                         }
