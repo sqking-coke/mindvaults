@@ -42,15 +42,23 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
-    origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS（demo 模式放开所有域名，方便任意 IP 访问）
+    if settings.DEMO_MODE:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # IP 黑名单（demo 模式生效，需在日志中间件之前）
     app.middleware("http")(ip_blacklist_middleware)
