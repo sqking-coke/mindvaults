@@ -194,6 +194,32 @@ docker compose up -d
 docker compose --profile full up -d
 ```
 
+### 🖥️ 本地开发
+
+```bash
+# 环境依赖：Python 3.12 + Node.js 22 + PostgreSQL 16 (pgvector) + Redis
+
+# 1. 后端
+cd backend
+source venv/bin/activate
+# 如果 venv shebang 路径损坏（目录重命名导致），改用：
+#   venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+alembic upgrade head
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# 2. 前端
+npx next dev
+
+# 3. 访问
+#   前端: http://localhost:3000
+#   后端 API 文档: http://localhost:8000/docs
+#   健康检查: http://localhost:8000/api/v1/health
+```
+
+> **端口冲突?** `lsof -ti:8000 | xargs kill -9`  
+> **venv pip 报错?** 改用 `venv/bin/python -m pip install <pkg>`  
+> 完整排查见 `docs/planning/15-本地开发环境启动.md`
+
 > 📖 完整部署文档请参阅 **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**，涵盖：
 > - Docker Compose Profiles 双模式部署
 > - 24 项环境变量详解 + 4 种 Provider 组合方案
