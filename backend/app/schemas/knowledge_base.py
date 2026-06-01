@@ -50,13 +50,8 @@ class KbConfigResponse(BaseModel):
 
 
 class KbConfigRequest(BaseModel):
+    """KB 级别 RAG 参数覆写。"""
     chunk_size: int | None = None
     chunk_overlap: int | None = None
     top_k: int | None = None
     similarity_threshold: float | None = None
-    llm_provider: str | None = None
-    llm_base_url: str | None = None
-    llm_model: str | None = None
-    llm_api_key: str | None = None
-    llm_temperature: float | None = None
-    system_prompt: str | None = None

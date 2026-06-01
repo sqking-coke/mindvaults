@@ -16,14 +16,60 @@ from app.core.exceptions import (
     app_exception_handler,
     unhandled_exception_handler,
 )
-from app.core.middleware import limiter, request_log_middleware
+from app.core.middleware import limiter, request_log_middleware, ip_blacklist_middleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"mindvaults starting (env={settings.APP_ENV})")
-    # 恢复上次异常中断的摄入任务
+
     from app.core.database import AsyncSessionLocal
+    from sqlalchemy import text, select
+    from app.models.system_config import SystemConfig
+
+    # 自动建表 + 数据迁移：从 kb_config(kb_id=1) 复制到 system_config
+    async with AsyncSessionLocal() as db:
+        try:
+            await db.execute(text("""
+                CREATE TABLE IF NOT EXISTS system_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    llm_provider VARCHAR(50), llm_base_url VARCHAR(255),
+                    llm_model VARCHAR(100), llm_api_key VARCHAR(255),
+                    llm_temperature FLOAT DEFAULT 0.3 NOT NULL,
+                    embedding_provider VARCHAR(50) DEFAULT 'same_as_llm',
+                    embedding_base_url VARCHAR(255),
+                    embedding_api_key VARCHAR(255),
+                    embedding_model VARCHAR(100),
+                    system_prompt TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+            """))
+            await db.commit()
+
+            # 如果 system_config 为空，从 kb_config(kb_id=1) 迁移
+            existing = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
+            if existing is None:
+                old = (await db.execute(text(
+                    "SELECT llm_provider, llm_base_url, llm_model, llm_api_key, "
+                    "llm_temperature, embedding_provider, embedding_base_url, "
+                    "embedding_api_key, embedding_model, system_prompt "
+                    "FROM kb_config WHERE kb_id = 1"
+                ))).fetchone()
+                if old:
+                    await db.execute(text(
+                        "INSERT INTO system_config (id, llm_provider, llm_base_url, llm_model, "
+                        "llm_api_key, llm_temperature, embedding_provider, embedding_base_url, "
+                        "embedding_api_key, embedding_model, system_prompt) "
+                        "VALUES (1, :p1, :p2, :p3, :p4, :p5, :p6, :p7, :p8, :p9, :p10)"
+                    ), {"p1": old[0], "p2": old[1], "p3": old[2], "p4": old[3],
+                        "p5": old[4] or 0.3, "p6": old[5] or "same_as_llm",
+                        "p7": old[6], "p8": old[7], "p9": old[8], "p10": old[9]})
+                    await db.commit()
+                    logger.info("lifespan_migrated kb_config → system_config")
+        except Exception as exc:
+            logger.warning(f"lifespan_migration_skipped error=\"{exc}\"")
+
+    # 恢复上次异常中断的摄入任务
     from app.services.ingestion_service import recover_stuck_documents
     recovered = await recover_stuck_documents(AsyncSessionLocal)
     if recovered:
@@ -42,15 +88,26 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
-    origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS（demo 模式放开所有域名，方便任意 IP 访问）
+    if settings.DEMO_MODE:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    # IP 黑名单（demo 模式生效，需在日志中间件之前）
+    app.middleware("http")(ip_blacklist_middleware)
 
     # 请求日志中间件
     app.middleware("http")(request_log_middleware)

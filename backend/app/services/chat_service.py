@@ -100,24 +100,37 @@ async def chat_stream(
     yield ("start", json.dumps({"status": "processing"}))
 
     # — 0. 提前获取配置 —
+    from app.models.system_config import SystemConfig
     from app.services.retrieval_service import get_config
-    cfg = await get_config(db)
-    provider = cfg.llm_provider if cfg.llm_provider is not None else settings.LLM_PROVIDER
-    model = cfg.llm_model if cfg.llm_model is not None else settings.LLM_MODEL
-    api_key = cfg.llm_api_key if cfg.llm_api_key is not None else settings.LLM_API_KEY
-    base_url = cfg.llm_base_url if cfg.llm_base_url is not None else settings.LLM_BASE_URL
-    threshold = cfg.similarity_threshold if cfg.similarity_threshold is not None else 0.5
 
-    # Embedding 配置：same_as_llm 时 URL/Key 优先走 settings 专用配置，其次复用 LLM
-    emb_provider = cfg.embedding_provider if cfg.embedding_provider else "same_as_llm"
+    sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
+    if sys_cfg is None:
+        sys_cfg = SystemConfig(id=1)
+        db.add(sys_cfg)
+        await db.flush()
+
+    kb_cfg = await get_config(db)
+    is_demo = settings.DEMO_MODE
+    provider = sys_cfg.llm_provider if sys_cfg.llm_provider is not None else settings.LLM_PROVIDER
+    model = sys_cfg.llm_model if sys_cfg.llm_model is not None else settings.LLM_MODEL
+    api_key = sys_cfg.llm_api_key if sys_cfg.llm_api_key is not None else settings.LLM_API_KEY
+    base_url = sys_cfg.llm_base_url if sys_cfg.llm_base_url is not None else settings.LLM_BASE_URL
+    threshold = kb_cfg.similarity_threshold if kb_cfg.similarity_threshold is not None else 0.5
+
+    emb_provider = sys_cfg.embedding_provider if sys_cfg.embedding_provider else "same_as_llm"
     if emb_provider == "same_as_llm":
         emb_api_key = settings.EMBEDDING_API_KEY or api_key
         emb_base_url = settings.EMBEDDING_BASE_URL or base_url
         emb_provider_for_call = "openai"
+    elif emb_provider == "ollama":
+        emb_api_key = None
+        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
+        emb_provider_for_call = "ollama"
     else:
-        emb_api_key = cfg.embedding_api_key or settings.EMBEDDING_API_KEY or api_key
-        emb_base_url = cfg.embedding_base_url or settings.EMBEDDING_BASE_URL or base_url
-        emb_provider_for_call = emb_provider
+        # openai / siliconflow / deepseek 等均走 OpenAI 兼容 API
+        emb_api_key = sys_cfg.embedding_api_key or settings.EMBEDDING_API_KEY
+        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
+        emb_provider_for_call = "openai"
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
 
     logger.info(
@@ -142,14 +155,23 @@ async def chat_stream(
     kb_id = req.kb_id if req.kb_id is not None else (session.kb_id if session else 1)
 
     if session is None:
-        session = KbSession(
-            session_id=req.session_id,
-            kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
-            title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
-        )
-        db.add(session)
-        await db.flush()
-        await db.commit()  # 立即提交会话创建，释放锁，后续 LLM 失败不影响会话存在
+        if is_demo:
+            # demo 模式不落库，用占位 session 避免后续 None 引用
+            session = KbSession(
+                session_id=req.session_id,
+                kb_id=max(kb_id, 1),
+                title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
+                id=0,
+            )
+        else:
+            session = KbSession(
+                session_id=req.session_id,
+                kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
+                title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
+            )
+            db.add(session)
+            await db.flush()
+            await db.commit()  # 立即提交会话创建，释放锁，后续 LLM 失败不影响会话存在
 
     step = {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}
     await _push_thinking(req.session_id, round_key, step)
@@ -165,16 +187,17 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
-        record = KbQaRecord(
-            session_id=session.id,
-            question=req.question,
-            answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
-            ref_chunks=[],
-            model_name=settings.LLM_MODEL,
-            round_key=round_key,
-        )
-        db.add(record)
-        await db.commit()
+        if not is_demo:
+            record = KbQaRecord(
+                session_id=session.id,
+                question=req.question,
+                answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
+                ref_chunks=[],
+                model_name=settings.LLM_MODEL,
+                round_key=round_key,
+            )
+            db.add(record)
+            await db.commit()
         yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
         return
 
@@ -188,17 +211,17 @@ async def chat_stream(
     candidate_chunks = await retrieve_chunks(db, query_embedding, kb_id=kb_id, top_k=k * 2)
 
     if not candidate_chunks:
-        # 落库：即使未检索到文档，也保存问答记录，确保对话历史完整
-        record = KbQaRecord(
-            session_id=session.id,
-            question=req.question,
-            answer="📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。",
-            ref_chunks=[],
-            model_name=settings.LLM_MODEL,
-            round_key=round_key,
-        )
-        db.add(record)
-        await db.commit()
+        if not is_demo:
+            record = KbQaRecord(
+                session_id=session.id,
+                question=req.question,
+                answer="📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。",
+                ref_chunks=[],
+                model_name=settings.LLM_MODEL,
+                round_key=round_key,
+            )
+            db.add(record)
+            await db.commit()
         yield (
             "error",
             json.dumps({"code": 4001, "message": "未找到与问题相关的文档内容"}),
@@ -263,7 +286,7 @@ async def chat_stream(
     yield ("progress", json.dumps(step))
 
     context = _build_context(chunks)
-    history = await _build_history(db, session.id)
+    history = await _build_history(db, session.id) if not is_demo else ""
     user_prompt = f"参考文档：\n\n{context}\n{history}\n用户问题：{req.question}\n\n请回答："
 
     full_answer = ""
@@ -274,36 +297,37 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5001
         logger.error(f"rag_llm_failed session_id={req.session_id} provider={provider} model={model} error=\"{exc}\"")
-        # 落库：保存已生成的部分内容 + 错误信息
+        if not is_demo:
+            record = KbQaRecord(
+                session_id=session.id,
+                question=req.question,
+                answer=full_answer + f"\n\n[生成中断] {exc}",
+                ref_chunks=[c.model_dump() for c in chunks],
+                model_name=settings.LLM_MODEL,
+                round_key=round_key,
+            )
+            db.add(record)
+            await db.commit()
+        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
+        return
+
+    # — 5. 保存 QA 记录 —
+    if not is_demo:
         record = KbQaRecord(
             session_id=session.id,
             question=req.question,
-            answer=full_answer + f"\n\n[生成中断] {exc}",
+            answer=full_answer,
             ref_chunks=[c.model_dump() for c in chunks],
             model_name=settings.LLM_MODEL,
             round_key=round_key,
         )
         db.add(record)
+
+        # 更新会话标题（首次问答后）
+        if session.title.startswith(req.question[:50]):
+            session.title = req.question[:30] + ("..." if len(req.question) > 30 else "")
+
         await db.commit()
-        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
-        return
-
-    # — 5. 保存 QA 记录 —
-    record = KbQaRecord(
-        session_id=session.id,
-        question=req.question,
-        answer=full_answer,
-        ref_chunks=[c.model_dump() for c in chunks],
-        model_name=settings.LLM_MODEL,
-        round_key=round_key,
-    )
-    db.add(record)
-
-    # 更新会话标题（首次问答后）
-    if session.title.startswith(req.question[:50]):
-        session.title = req.question[:30] + ("..." if len(req.question) > 30 else "")
-
-    await db.commit()
 
     elapsed_ms = int((time.time() - t_start) * 1000)
     logger.info(

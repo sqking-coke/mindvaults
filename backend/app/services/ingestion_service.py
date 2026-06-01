@@ -12,11 +12,18 @@ from app.models.config import KbConfig
 from app.utils.logger import log_event
 from app.services.parser_service import parse_document
 from app.services.chunking_service import chunk_pages
+from app.config import settings
 from app.services.embedding_service import embed_batch
 
 
-async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_path: str) -> None:
-    """文档摄入管道：解析 → 切片 → 向量化 → 入库。"""
+async def ingest_document(
+    db: AsyncSession, doc_id: int, doc_type: str, file_path: str,
+    llm_api_key: str | None = None, embedding_api_key: str | None = None,
+) -> None:
+    """文档摄入管道：解析 → 切片 → 向量化 → 入库。
+
+    可选传入 llm_api_key / embedding_api_key，优先级高于配置。
+    """
     try:
         # 0. 标记为处理中
         doc = (
@@ -65,8 +72,37 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
         await db.flush()
 
         chunk_texts = [c[0] for c in chunks_with_pages]
+
+        # 解析 embedding 配置：传参 > SystemConfig > env
+        from app.models.system_config import SystemConfig
+        sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
+
+        emb_provider = (sys_cfg.embedding_provider if sys_cfg and sys_cfg.embedding_provider else "same_as_llm")
+        sys_llm_key = sys_cfg.llm_api_key if sys_cfg else None
+        sys_llm_url = sys_cfg.llm_base_url if sys_cfg else None
+        sys_emb_key = sys_cfg.embedding_api_key if sys_cfg else None
+        sys_emb_url = sys_cfg.embedding_base_url if sys_cfg else None
+
+        if emb_provider == "same_as_llm":
+            emb_api_key = embedding_api_key or settings.EMBEDDING_API_KEY or sys_llm_key
+            emb_base_url = settings.EMBEDDING_BASE_URL or sys_llm_url
+        elif emb_provider == "ollama":
+            emb_api_key = None  # Ollama 不需要 key
+            emb_base_url = sys_emb_url or settings.EMBEDDING_BASE_URL
+        else:
+            # openai / siliconflow / deepseek 等均走 OpenAI 兼容 API
+            emb_api_key = embedding_api_key or sys_emb_key or settings.EMBEDDING_API_KEY
+            emb_base_url = sys_emb_url or settings.EMBEDDING_BASE_URL
+
+        emb_provider_for_call = "ollama" if emb_provider == "ollama" else "openai"
+
         try:
-            embeddings = await embed_batch(chunk_texts)
+            embeddings = await embed_batch(
+                chunk_texts,
+                api_key=emb_api_key,
+                base_url=emb_base_url,
+                provider=emb_provider_for_call,
+            )
         except Exception as exc:
             logger.error(f"embedding_batch_failed doc_id={doc_id} chunks={len(chunk_texts)} error=\"{exc}\"")
             doc.status = DOC_STATUS_FAILED

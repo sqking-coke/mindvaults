@@ -13,14 +13,6 @@ from app.services import kb_service
 router = APIRouter(prefix="/knowledge-bases", tags=["kb_knowledge_bases"])
 
 
-def _mask_api_key(key: str | None) -> str:
-    if not key:
-        return ""
-    if len(key) <= 8:
-        return "••••••••"
-    return f"{key[:4]}••••••••{key[-4:]}"
-
-
 @router.post("")
 async def create(body: KbCreateRequest, db: AsyncSession = Depends(get_db)):
     kb = await kb_service.create_kb(db, body)
@@ -61,9 +53,6 @@ async def get_config(kb_id: int, db: AsyncSession = Depends(get_db)):
         "chunk_overlap": cfg.chunk_overlap, "top_k": cfg.top_k,
         "similarity_threshold": cfg.similarity_threshold,
         "embedding_dim": cfg.embedding_dim,
-        "llm_provider": cfg.llm_provider, "llm_base_url": cfg.llm_base_url,
-        "llm_model": cfg.llm_model, "llm_api_key": _mask_api_key(cfg.llm_api_key),
-        "llm_temperature": cfg.llm_temperature, "system_prompt": cfg.system_prompt,
     })
 
 
@@ -75,7 +64,4 @@ async def update_config(kb_id: int, body: KbConfigRequest, db: AsyncSession = De
         "chunk_overlap": cfg.chunk_overlap, "top_k": cfg.top_k,
         "similarity_threshold": cfg.similarity_threshold,
         "embedding_dim": cfg.embedding_dim,
-        "llm_provider": cfg.llm_provider, "llm_base_url": cfg.llm_base_url,
-        "llm_model": cfg.llm_model, "llm_api_key": _mask_api_key(cfg.llm_api_key),
-        "llm_temperature": cfg.llm_temperature, "system_prompt": cfg.system_prompt,
     })

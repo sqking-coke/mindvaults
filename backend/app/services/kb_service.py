@@ -165,23 +165,6 @@ async def update_kb_config(db: AsyncSession, kb_id: int, req: KbConfigRequest) -
     if req.similarity_threshold is not None:
         cfg.similarity_threshold = req.similarity_threshold
 
-    if req.llm_provider is not None:
-        cfg.llm_provider = req.llm_provider.strip().lower()
-    if req.llm_base_url is not None:
-        cfg.llm_base_url = req.llm_base_url.strip()
-    if req.llm_model is not None:
-        cfg.llm_model = req.llm_model.strip()
-    if req.llm_api_key is not None:
-        key = req.llm_api_key.strip()
-        if key and "••" not in key:
-            cfg.llm_api_key = key
-        elif not key:
-            cfg.llm_api_key = ""
-    if req.llm_temperature is not None:
-        cfg.llm_temperature = req.llm_temperature
-    if req.system_prompt is not None:
-        cfg.system_prompt = req.system_prompt.strip()
-
     await db.commit()
     await db.refresh(cfg)
     return cfg
