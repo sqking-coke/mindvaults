@@ -237,10 +237,12 @@ export default function Home() {
     }
   };
 
+  const [copied, setCopied] = useState(false);
+
   const copyCliCommand = () => {
-    navigator.clipboard.writeText("docker compose up -d").then(() => {
-      alert("Command copied to clipboard!");
-    });
+    navigator.clipboard.writeText("docker compose up -d");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const toggleFaq = (idx: number) => {
@@ -1153,9 +1155,13 @@ export default function Home() {
                 <div className="step-cli-block">
                   <span id="cli-cmd">docker compose up -d</span>
                   <button className="copy-btn" onClick={copyCliCommand} title="复制命令">
-                    <svg viewBox="0 0 24 24" style={{ width: "14px", height: "14px", fill: "currentColor" }}>
-                      <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
-                    </svg>
+                    {copied ? (
+                      <span style={{ fontSize: "0.7rem", fontWeight: 600, whiteSpace: "nowrap" }}>已复制</span>
+                    ) : (
+                      <svg viewBox="0 0 24 24" style={{ width: "14px", height: "14px", fill: "currentColor" }}>
+                        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+                      </svg>
+                    )}
                   </button>
                 </div>
               </div>
