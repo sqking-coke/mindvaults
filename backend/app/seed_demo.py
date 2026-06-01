@@ -337,7 +337,6 @@ async def seed():
         await db.execute(text("DELETE FROM kb_chunks"))
         await db.execute(text("DELETE FROM kb_documents"))
         await db.execute(text("DELETE FROM kb_knowledge_bases"))
-        await db.execute(text("DELETE FROM kb_config"))
         await db.commit()
         print("[seed] 旧数据已清除，开始写入示例数据...")
         upload_dir = Path(settings.UPLOAD_DIR)
