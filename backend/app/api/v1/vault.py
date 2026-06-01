@@ -52,6 +52,8 @@ async def upload_vault_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """上传本地 Obsidian Vault 文件夹内的文件列表，批量导入到知识库。"""
+    _demo_guard("Obsidian Vault 文件夹上传导入")
+
     limit = DEMO_MAX_VAULT_FILES if settings.DEMO_MODE else 500
     md_files = [f for f in files if f.filename and f.filename.lower().endswith(".md")]
 

@@ -40,6 +40,14 @@ async def upload(
     """批量上传文档（multipart/form-data）。"""
     from app.config import settings
 
+    # Demo 模式禁止上传
+    if settings.DEMO_MODE:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail="演示环境已禁用文档上传功能。请自部署后体验完整功能：https://github.com/sqking-coke/mindvaults",
+        )
+
     # 文件数量限制
     if len(files) > settings.MAX_FILES_PER_UPLOAD:
         from app.core.exceptions import BadRequestError
