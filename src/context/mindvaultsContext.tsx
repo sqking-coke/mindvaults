@@ -77,6 +77,8 @@ interface mindvaultsContextType {
   loadOllamaModels: () => Promise<void>;
   toast: { message: string; type: "success" | "error" } | null;
   showToast: (message: string, type?: "success" | "error") => void;
+  configRequiredDialog: boolean;
+  dismissConfigRequiredDialog: () => void;
 }
 
 const mindvaultsContext = createContext<mindvaultsContextType | undefined>(undefined);
@@ -102,6 +104,10 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // --- Toast notification ---
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // --- Config required dialog ---
+  const [configRequiredDialog, setConfigRequiredDialog] = useState(false);
+  const dismissConfigRequiredDialog = useCallback(() => setConfigRequiredDialog(false), []);
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
@@ -406,7 +412,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try {
           for await (const event of streamChat(
             "/api/v1/kb/chat",
-            { question: content, session_id: sessionId, kb_id: Number(activeKbId || 1) },
+            { question: content, session_id: sessionId, kb_id: activeKbId && activeKbId !== "0" ? Number(activeKbId) : 0 },
             abortController.signal,
           )) {
             if (event.type === "progress") {
@@ -471,6 +477,15 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               if (errorCode === 4001) {
                 displayContent =
                   "📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。";
+              } else if (errorCode === 5003) {
+                displayContent = "⚠️ 大模型 API Key 未配置，无法生成回答。\n\n请点击页面弹出的提示框前往系统设置页面配置 API Key。";
+                setConfigRequiredDialog(true);
+              } else if (
+                (errorCode === 5001 || errorCode === 5002) &&
+                /401|403|unauthorized|api.?key|认证|未配置|无效/.test(errorMessage.toLowerCase())
+              ) {
+                displayContent = "⚠️ API Key 无效或未配置，无法连接模型服务。\n\n请点击页面弹出的提示框前往系统设置页面检查 API Key 配置。";
+                setConfigRequiredDialog(true);
               } else {
                 displayContent = `⚠️ ${errorMessage}`;
               }
@@ -801,6 +816,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         loadOllamaModels,
         toast,
         showToast,
+        configRequiredDialog,
+        dismissConfigRequiredDialog,
       }}
     >
       {children}

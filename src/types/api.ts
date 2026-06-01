@@ -309,6 +309,7 @@ export const ErrorCode = {
   RETRIEVAL_TIMEOUT: 4001,
   LLM_CALL_FAILED: 5001,
   EMBEDDING_UNAVAILABLE: 5002,
+  LLM_CONFIG_REQUIRED: 5003,
   INTERNAL_ERROR: 9001,
 } as const;
 
@@ -342,6 +343,10 @@ export interface SystemConfig {
   llm_api_key: string;
   llm_temperature: number;
   system_prompt: string;
+  embedding_provider: string;
+  embedding_base_url: string;
+  embedding_model: string;
+  embedding_api_key: string;
 }
 
 export interface SystemConfigRequest {
@@ -355,6 +360,10 @@ export interface SystemConfigRequest {
   llm_api_key?: string;
   llm_temperature?: number;
   system_prompt?: string;
+  embedding_provider?: string;
+  embedding_base_url?: string;
+  embedding_model?: string;
+  embedding_api_key?: string;
 }
 
 // ==================== Obsidian Vault 导入 API 契约 ====================

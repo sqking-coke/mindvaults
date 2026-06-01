@@ -4,18 +4,22 @@ import React, { useState } from "react";
 import CitationDrawer from "@/components/chat/CitationDrawer";
 import ChatMessageList from "@/components/chat/ChatMessageList";
 import ChatInputArea from "@/components/chat/ChatInputArea";
+import ConfigRequiredDialog from "@/components/chat/ConfigRequiredDialog";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { ShieldCheck } from "lucide-react";
 
 export default function ChatPage() {
-  const { 
-    conversations, 
-    activeConversationId, 
+  const {
+    conversations,
+    activeConversationId,
     knowledgeBases,
+    activeKbId,
     systemConfig,
     ollamaModels,
     updateSystemConfig,
-    loadOllamaModels
+    loadOllamaModels,
+    configRequiredDialog,
+    dismissConfigRequiredDialog,
   } = usemindvaults();
 
   const [input, setInput] = useState("");
@@ -91,10 +95,20 @@ export default function ChatPage() {
             )}
 
             {/* Connected KB Badge */}
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span>关联 <b>{knowledgeBases.length}</b> 个本地知识库</span>
-            </div>
+            {(() => {
+              const selectedKb = knowledgeBases.find(kb => String(kb.id) === activeKbId);
+              return (
+                <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className={`h-1.5 w-1.5 rounded-full ${activeKbId && activeKbId !== "0" ? "bg-emerald-500" : "bg-amber-400"}`} />
+                  <span>
+                    {activeKbId && activeKbId !== "0"
+                      ? <>检索：<b>{selectedKb?.name || "未知"}</b></>
+                      : <>自动匹配（共 <b>{knowledgeBases.length}</b> 个知识库）</>
+                    }
+                  </span>
+                </div>
+              );
+            })()}
             
             {/* Security Indicator */}
             <div className="flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10.5px] font-bold px-2 py-1 rounded-lg border border-emerald-100 shadow-sm shrink-0">
@@ -113,6 +127,12 @@ export default function ChatPage() {
 
       {/* Slide-out Citation Source Details Panel */}
       <CitationDrawer />
+
+      {/* Config Required Dialog */}
+      <ConfigRequiredDialog
+        open={configRequiredDialog}
+        onDismiss={dismissConfigRequiredDialog}
+      />
     </>
   );
 }
