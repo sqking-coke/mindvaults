@@ -12,6 +12,7 @@ from app.models.config import KbConfig
 from app.utils.logger import log_event
 from app.services.parser_service import parse_document
 from app.services.chunking_service import chunk_pages
+from app.config import settings
 from app.services.embedding_service import embed_batch
 
 
@@ -65,12 +66,24 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
         await db.flush()
 
         chunk_texts = [c[0] for c in chunks_with_pages]
+
+        # 解析 embedding 配置：same_as_llm 时复用 LLM 配置
+        emb_provider = config.embedding_provider if config.embedding_provider else "same_as_llm"
+        if emb_provider == "same_as_llm":
+            emb_api_key = settings.EMBEDDING_API_KEY or config.llm_api_key
+            emb_base_url = settings.EMBEDDING_BASE_URL or config.llm_base_url
+            emb_provider_for_call = "openai"
+        else:
+            emb_api_key = config.embedding_api_key
+            emb_base_url = config.embedding_base_url
+            emb_provider_for_call = emb_provider
+
         try:
             embeddings = await embed_batch(
                 chunk_texts,
-                api_key=config.embedding_api_key,
-                base_url=config.embedding_base_url,
-                provider=config.embedding_provider,
+                api_key=emb_api_key,
+                base_url=emb_base_url,
+                provider=emb_provider_for_call,
             )
         except Exception as exc:
             logger.error(f"embedding_batch_failed doc_id={doc_id} chunks={len(chunk_texts)} error=\"{exc}\"")
