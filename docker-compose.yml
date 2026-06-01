@@ -13,6 +13,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - NEXT_PUBLIC_DEMO_MODE=${NEXT_PUBLIC_DEMO_MODE:-false}
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
     ports:
       - "3000:3000"
     environment:

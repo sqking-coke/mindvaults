@@ -45,7 +45,7 @@ export default function DocumentTable({ opsMode = false, opsDocuments }: Documen
   const [previewDoc, setPreviewDoc] = useState<{ name: string; content: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
   const handlePreview = async (docId: string, docName: string) => {
     setPreviewLoading(true);
