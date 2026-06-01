@@ -5,36 +5,52 @@ from loguru import logger
 import httpx
 
 from app.config import settings
-from app.core.exceptions import EmbeddingUnavailableError
+from app.core.exceptions import EmbeddingUnavailableError, LLMConfigRequiredError
 
 
-async def embed_text(text: str) -> list[float]:
-    """生成文本向量，兼容 Ollama 原生 & OpenAI 兼容 API."""
-    provider = settings.EMBEDDING_PROVIDER
-    if provider == "openai":
-        return await _embed_openai(text)
+async def embed_text(
+    text: str,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    provider: str | None = None,
+) -> list[float]:
+    """生成文本向量，兼容 Ollama 原生 & OpenAI 兼容 API.
+
+    可选传入 api_key/base_url/provider 覆盖 settings 默认值（用于 DB 动态配置）。
+    """
+    active_provider = provider if provider is not None else settings.EMBEDDING_PROVIDER
+    if active_provider == "openai":
+        return await _embed_openai(text, api_key=api_key, base_url=base_url)
     else:
-        return await _embed_ollama(text)
+        return await _embed_ollama(text, base_url=base_url)
 
 
 _BATCH_CHUNK_SIZE = 20  # 单次 embedding 请求最大文本数，避免 413 Payload Too Large
 
-async def embed_batch(texts: list[str]) -> list[list[float]]:
+async def embed_batch(
+    texts: list[str],
+    api_key: str | None = None,
+    base_url: str | None = None,
+    provider: str | None = None,
+) -> list[list[float]]:
     """批量生成文本向量。OpenAI 兼容 API 使用 array input；
     Ollama 不支持批量，退化为并发单条调用。
-    单次请求超过 _BATCH_CHUNK_SIZE 条时自动拆分为多次请求。"""
+    单次请求超过 _BATCH_CHUNK_SIZE 条时自动拆分为多次请求。
+
+    可选传入 api_key/base_url/provider 覆盖 settings 默认值。
+    """
     if not texts:
         return []
-    provider = settings.EMBEDDING_PROVIDER
-    if provider == "openai":
+    active_provider = provider if provider is not None else settings.EMBEDDING_PROVIDER
+    if active_provider == "openai":
         all_embeddings = []
         for i in range(0, len(texts), _BATCH_CHUNK_SIZE):
             batch = texts[i:i + _BATCH_CHUNK_SIZE]
-            all_embeddings.extend(await _embed_openai_batch(batch))
+            all_embeddings.extend(await _embed_openai_batch(batch, api_key=api_key, base_url=base_url))
         return all_embeddings
     else:
         # Ollama 退化为并发单条
-        tasks = [_embed_ollama(t) for t in texts]
+        tasks = [_embed_ollama(t, base_url=base_url) for t in texts]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         out = []
         for i, r in enumerate(results):
@@ -45,9 +61,9 @@ async def embed_batch(texts: list[str]) -> list[list[float]]:
         return out
 
 
-async def _embed_ollama(text: str) -> list[float]:
+async def _embed_ollama(text: str, base_url: str | None = None) -> list[float]:
     """Ollama 原生 Embedding API (POST /api/embeddings)."""
-    base = settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL
+    base = base_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL
     url = f"{base.rstrip('/')}/api/embeddings"
     payload = {"model": settings.EMBEDDING_MODEL, "prompt": text}
 
@@ -65,18 +81,19 @@ async def _embed_ollama(text: str) -> list[float]:
         raise EmbeddingUnavailableError(f"Embedding 模型不可用: {exc}")
 
 
-async def _embed_openai(text: str) -> list[float]:
+async def _embed_openai(text: str, api_key: str | None = None, base_url: str | None = None) -> list[float]:
     """OpenAI 兼容 Embedding API (POST /embeddings).
 
     支持 OpenAI / DeepSeek / 通义千问 / 本地 vLLM 等兼容接口。
     """
-    base = (settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL).rstrip('/')
+    active_base = base_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL
+    base = active_base.rstrip('/')
     url = f"{base}/embeddings" if base.endswith("/v1") else f"{base}/v1/embeddings"
 
-    headers = {"Content-Type": "application/json"}
-    api_key = settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    active_api_key = api_key or settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
+    if not active_api_key:
+        raise LLMConfigRequiredError("请先配置 Embedding API Key，否则无法进行文档向量化")
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {active_api_key}"}
 
     payload = {
         "model": settings.EMBEDDING_MODEL,
@@ -93,19 +110,23 @@ async def _embed_openai(text: str) -> list[float]:
                 raise EmbeddingUnavailableError("Embedding 模型返回空向量")
             return embedding
     except (httpx.HTTPError, KeyError, IndexError) as exc:
+        status = getattr(exc, "response", None) and getattr(exc.response, "status_code", None)
+        if status in (401, 403):
+            raise LLMConfigRequiredError(f"Embedding API Key 无效或未配置，请检查系统设置: {exc}")
         logger.error(f"Embedding (openai) 调用失败: {exc}")
         raise EmbeddingUnavailableError(f"Embedding 模型不可用: {exc}")
 
 
-async def _embed_openai_batch(texts: list[str]) -> list[list[float]]:
+async def _embed_openai_batch(texts: list[str], api_key: str | None = None, base_url: str | None = None) -> list[list[float]]:
     """OpenAI 兼容批量 Embedding (POST /v1/embeddings with array input)."""
-    base = (settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL).rstrip('/')
+    active_base = base_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL
+    base = active_base.rstrip('/')
     url = f"{base}/embeddings" if base.endswith("/v1") else f"{base}/v1/embeddings"
 
-    headers = {"Content-Type": "application/json"}
-    api_key = settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    active_api_key = api_key or settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
+    if not active_api_key:
+        raise LLMConfigRequiredError("请先配置 Embedding API Key，否则无法进行文档向量化")
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {active_api_key}"}
 
     payload = {"model": settings.EMBEDDING_MODEL, "input": texts}
 
@@ -121,5 +142,8 @@ async def _embed_openai_batch(texts: list[str]) -> list[list[float]]:
                 )
             return embeddings
     except (httpx.HTTPError, KeyError, IndexError) as exc:
+        status = getattr(exc, "response", None) and getattr(exc.response, "status_code", None)
+        if status in (401, 403):
+            raise LLMConfigRequiredError(f"Embedding API Key 无效或未配置，请检查系统设置: {exc}")
         logger.error(f"Embedding (openai) batch 调用失败: {exc}")
         raise EmbeddingUnavailableError(f"Embedding batch 不可用: {exc}")

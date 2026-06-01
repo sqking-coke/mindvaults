@@ -9,7 +9,7 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.exceptions import SessionNotFoundError
+from app.core.exceptions import SessionNotFoundError, AppException
 from app.models.qa_record import KbQaRecord
 from app.models.session import KbSession
 from app.schemas.chat import (
@@ -104,7 +104,20 @@ async def chat_stream(
     cfg = await get_config(db)
     provider = cfg.llm_provider if cfg.llm_provider is not None else settings.LLM_PROVIDER
     model = cfg.llm_model if cfg.llm_model is not None else settings.LLM_MODEL
+    api_key = cfg.llm_api_key if cfg.llm_api_key is not None else settings.LLM_API_KEY
+    base_url = cfg.llm_base_url if cfg.llm_base_url is not None else settings.LLM_BASE_URL
     threshold = cfg.similarity_threshold if cfg.similarity_threshold is not None else 0.5
+
+    # Embedding 配置：优先 DB，回退 .env；same_as_llm 时复用 LLM Key
+    emb_provider = cfg.embedding_provider if cfg.embedding_provider else "same_as_llm"
+    if emb_provider == "same_as_llm":
+        emb_api_key = api_key
+        emb_base_url = base_url
+        emb_provider_for_call = provider
+    else:
+        emb_api_key = cfg.embedding_api_key or settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
+        emb_base_url = cfg.embedding_base_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL
+        emb_provider_for_call = emb_provider
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
 
     logger.info(
@@ -148,8 +161,9 @@ async def chat_stream(
     yield ("progress", json.dumps(step))
 
     try:
-        query_embedding = await embed_text(req.question)
+        query_embedding = await embed_text(req.question, api_key=emb_api_key, base_url=emb_base_url, provider=emb_provider_for_call)
     except Exception as exc:
+        error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
         record = KbQaRecord(
             session_id=session.id,
@@ -161,7 +175,7 @@ async def chat_stream(
         )
         db.add(record)
         await db.commit()
-        yield ("error", json.dumps({"code": 5002, "message": str(exc)}))
+        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
         return
 
     # — 3. 检索 —
@@ -230,10 +244,11 @@ async def chat_stream(
 
     full_answer = ""
     try:
-        async for token in generate_stream(RAG_SYSTEM_PROMPT, user_prompt):
+        async for token in generate_stream(RAG_SYSTEM_PROMPT, user_prompt, provider=provider, base_url=base_url, model=model, api_key=api_key):
             full_answer += token
             yield ("token", json.dumps({"content": token}))
     except Exception as exc:
+        error_code = exc.code if isinstance(exc, AppException) else 5001
         logger.error(f"rag_llm_failed session_id={req.session_id} provider={provider} model={model} error=\"{exc}\"")
         # 落库：保存已生成的部分内容 + 错误信息
         record = KbQaRecord(
@@ -246,7 +261,7 @@ async def chat_stream(
         )
         db.add(record)
         await db.commit()
-        yield ("error", json.dumps({"code": 5001, "message": str(exc)}))
+        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
         return
 
     # — 5. 保存 QA 记录 —

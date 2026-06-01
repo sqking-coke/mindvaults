@@ -52,6 +52,12 @@ class LLMCallFailedError(AppException):
         super().__init__(code=5001, message=message, status_code=502)
 
 
+class LLMConfigRequiredError(AppException):
+    """LLM/Embedding 未配置 API Key 等必要参数"""
+    def __init__(self, message: str = "请先配置大模型 API Key"):
+        super().__init__(code=5003, message=message, status_code=400)
+
+
 class ChunkNotFoundError(AppException):
     def __init__(self, message: str = "切片不存在"):
         super().__init__(code=4004, message=message, status_code=404)

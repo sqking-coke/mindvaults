@@ -29,6 +29,13 @@ class KbConfig(Base):
     llm_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     llm_api_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     llm_temperature: Mapped[float] = mapped_column(Float, default=0.3, nullable=False)
+
+    # --- Embedding config (UI 可配，独立于 LLM) ---
+    embedding_provider: Mapped[Optional[str]] = mapped_column(String(50), default="same_as_llm")
+    embedding_base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_api_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(
