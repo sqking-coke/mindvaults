@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
-from app.core.database import async_session_factory
+from app.core.database import AsyncSessionLocal
 
 
 SAMPLE_DOCS = [
@@ -85,7 +85,7 @@ SAMPLE_DOCS = [
 
 
 async def seed():
-    async with async_session_factory() as db:
+    async with AsyncSessionLocal() as db:
         # 检查是否已有数据
         result = await db.execute(text("SELECT COUNT(*) FROM kb_knowledge_bases"))
         count = result.scalar()

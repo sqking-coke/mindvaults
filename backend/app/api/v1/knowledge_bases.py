@@ -10,7 +10,7 @@ from app.schemas.knowledge_base import (
 )
 from app.services import kb_service
 
-router = APIRouter(prefix="/knowledge-bases", tags=["knowledge_bases"])
+router = APIRouter(prefix="/knowledge-bases", tags=["kb_knowledge_bases"])
 
 
 def _mask_api_key(key: str | None) -> str:

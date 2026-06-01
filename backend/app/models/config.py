@@ -13,7 +13,7 @@ class KbConfig(Base):
     # ★ 主键从 id 改为 kb_id (PK + FK)
     kb_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        ForeignKey("kb_knowledge_bases.id", ondelete="CASCADE"),
         primary_key=True,
     )
 
