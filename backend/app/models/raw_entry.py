@@ -15,7 +15,7 @@ class KbRawEntry(Base):
         BigInteger, ForeignKey("kb_data_sources.id", ondelete="CASCADE"), nullable=False
     )
     kb_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("kb_knowledge_bases.id", ondelete="CASCADE"), nullable=False
     )
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(

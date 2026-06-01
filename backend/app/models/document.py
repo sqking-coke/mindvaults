@@ -19,7 +19,7 @@ class KbDocument(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     kb_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("kb_knowledge_bases.id", ondelete="CASCADE"), nullable=False
     )
     doc_name: Mapped[str] = mapped_column(String(255), nullable=False)
     doc_type: Mapped[str] = mapped_column(String(10), nullable=False)

@@ -8,7 +8,7 @@ from app.models import Base
 
 
 class KnowledgeBase(Base):
-    __tablename__ = "knowledge_bases"
+    __tablename__ = "kb_knowledge_bases"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
