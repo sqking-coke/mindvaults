@@ -25,11 +25,11 @@ class CacheService:
         self._enabled = settings.REDIS_CACHE_ENABLED
         self._ttl = settings.REDIS_CACHE_TTL
 
-    async def get_retrieval(self, embedding: list[float]) -> list[RefChunk] | None:
+    async def get_retrieval(self, embedding: list[float], kb_id: int = 0) -> list[RefChunk] | None:
         """从缓存读取检索结果。未命中或异常时返回 None。"""
         if not self._enabled:
             return None
-        key = f"{CACHE_KEY_PREFIX}:{_hash_embedding(embedding)}"
+        key = f"{CACHE_KEY_PREFIX}:{kb_id}:{_hash_embedding(embedding)}"
         try:
             raw = await self._redis.get(key)
             if raw is None:
@@ -41,12 +41,12 @@ class CacheService:
             return None
 
     async def set_retrieval(
-        self, embedding: list[float], chunks: list[RefChunk]
+        self, embedding: list[float], chunks: list[RefChunk], kb_id: int = 0
     ) -> None:
         """将检索结果写入缓存。异常时静默降级。"""
         if not self._enabled:
             return
-        key = f"{CACHE_KEY_PREFIX}:{_hash_embedding(embedding)}"
+        key = f"{CACHE_KEY_PREFIX}:{kb_id}:{_hash_embedding(embedding)}"
         try:
             payload = json.dumps([c.model_dump() for c in chunks], ensure_ascii=False)
             await self._redis.setex(key, self._ttl, payload)

@@ -27,6 +27,25 @@
 > mindvaults 是一款支持**本地私有化 + 云端 API 双模式**的 RAG 知识库问答系统。默认 5 容器部署（含 Redis 缓存，LLM/Embedding 走云端 API），加 `--profile full` 启用 Ollama 本地推理实现完全离线运行。基于 FastAPI + Next.js 14 + PostgreSQL/pgvector + Redis 构建。
 
 
+### 💡 RAG 是怎么工作的？
+
+一个完整的 RAG 问答分为独立的两步，需要**两个不同的 API 各司其职**：
+
+```
+用户提问："mindvaults 是什么？"
+        │
+        ▼
+  ① Embedding（向量检索）       ② LLM（生成回答）
+     把问题转成向量                 把文档 + 问题喂给大模型
+     → 去数据库搜相关文档             → 生成最终回答
+     
+     例如：硅基流动 / OpenAI         例如：DeepSeek / OpenAI
+     某些模型没有 Embedding 能力     某些模型没有生成能力
+```
+
+> **常见问题**：DeepSeek 不提供 Embedding 接口，所以需要单独配一个支持 Embedding 的服务（如硅基流动）。两个 Key 可以来自不同厂商，系统会自动区分调用。
+
+
 ## 🚀 核心特性
 
 ### 1. 💬 RAG 智能问答

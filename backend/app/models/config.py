@@ -18,8 +18,8 @@ class KbConfig(Base):
     )
 
     embedding_dim: Mapped[int] = mapped_column(Integer, default=1024, nullable=False)
-    chunk_size: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
-    chunk_overlap: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
+    chunk_size: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    chunk_overlap: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     top_k: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     similarity_threshold: Mapped[float] = mapped_column(Float, default=0.35, nullable=False)
 
