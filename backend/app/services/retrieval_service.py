@@ -19,22 +19,11 @@ async def get_config(db: AsyncSession) -> KbConfig:
 
 
 async def get_config_by_kb(db: AsyncSession, kb_id: int) -> KbConfig:
-    """获取指定 KB 的配置；KB 和配置都不存在则自动创建。"""
-    from app.models.knowledge_base import KnowledgeBase
-
-    # 确保 KB 存在
-    kb = (await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))).scalar_one_or_none()
-    if kb is None:
-        kb = KnowledgeBase(id=kb_id, name=f"知识库 {kb_id}", description="自动创建")
-        db.add(kb)
-        await db.flush()
-
+    """获取指定 KB 的配置；不存在就返回默认值（不创建 KB）。"""
     row = (await db.execute(select(KbConfig).where(KbConfig.kb_id == kb_id))).scalar_one_or_none()
     if row is None:
         row = KbConfig(kb_id=kb_id)
-        db.add(row)
-        await db.flush()
-        await db.commit()
+        # 不持久化，只返回内存中的默认配置
     return row
 
 

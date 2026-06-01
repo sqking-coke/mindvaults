@@ -11,7 +11,7 @@ export default function DemoBanner() {
 
   return (
     <div className="bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 text-white">
-      <div className="max-w-screen-xl mx-auto px-4 py-2 flex items-center justify-between text-xs font-medium">
+      <div className="max-w-screen-xl mx-auto px-4 py-2 flex items-center justify-center text-xs font-medium relative">
         <div className="flex items-center gap-3">
           <span className="bg-white/20 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">
             演示环境
@@ -37,7 +37,7 @@ export default function DemoBanner() {
         </div>
         <button
           onClick={() => setDismissed(true)}
-          className="p-1 hover:bg-white/10 rounded transition-colors shrink-0"
+          className="absolute right-4 p-1 hover:bg-white/10 rounded transition-colors shrink-0"
           aria-label="关闭"
         >
           <X className="h-3.5 w-3.5" />

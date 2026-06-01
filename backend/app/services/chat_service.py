@@ -151,22 +151,28 @@ async def chat_stream(
         yield ("error", json.dumps({"code": 9001, "message": "数据库查询失败，请稍后重试"}))
         return
 
-    # 确定 kb_id：请求 > 会话 > 默认 1（0 表示全库检索）
-    kb_id = req.kb_id if req.kb_id is not None else (session.kb_id if session else 1)
+    # 确定 kb_id：请求 > 会话 > 默认 0 全库检索
+    kb_id = req.kb_id if req.kb_id is not None else (session.kb_id if session else 0)
+
+    # kb_id=0(全库)时，会话挂第一个可用的 KB
+    session_kb_id = kb_id if kb_id > 0 else None
+    if session_kb_id is None:
+        from app.models.knowledge_base import KnowledgeBase
+        first_kb = (await db.execute(select(KnowledgeBase).order_by(KnowledgeBase.id).limit(1))).scalar_one_or_none()
+        session_kb_id = first_kb.id if first_kb else 1
 
     if session is None:
         if is_demo:
-            # demo 模式不落库，用占位 session 避免后续 None 引用
             session = KbSession(
                 session_id=req.session_id,
-                kb_id=max(kb_id, 1),
+                kb_id=session_kb_id,
                 title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
                 id=0,
             )
         else:
             session = KbSession(
                 session_id=req.session_id,
-                kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
+                kb_id=session_kb_id,
                 title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
             )
             db.add(session)
