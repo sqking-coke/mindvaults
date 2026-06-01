@@ -37,6 +37,13 @@ async def get_system_config(db: AsyncSession = Depends(get_db)):
 
     system_prompt = cfg.system_prompt if cfg.system_prompt is not None else "你是一个基于本地知识库的智能问答助手。请严格根据以下提供的参考文档内容回答用户问题。如果参考文档中没有相关信息，请明确告知用户，不要编造内容。回答时引用具体的文档名称。"
 
+    # Embedding config
+    emb_provider = cfg.embedding_provider if cfg.embedding_provider is not None else "same_as_llm"
+    emb_url = cfg.embedding_base_url if cfg.embedding_base_url is not None else ""
+    emb_model = cfg.embedding_model if cfg.embedding_model is not None else ""
+    emb_raw_key = cfg.embedding_api_key if cfg.embedding_api_key is not None else ""
+    emb_masked_key = _mask_api_key(emb_raw_key)
+
     data = {
         "chunk_size": cfg.chunk_size,
         "chunk_overlap": cfg.chunk_overlap,
@@ -49,6 +56,10 @@ async def get_system_config(db: AsyncSession = Depends(get_db)):
         "llm_api_key": masked_key,
         "llm_temperature": cfg.llm_temperature,
         "system_prompt": system_prompt,
+        "embedding_provider": emb_provider,
+        "embedding_base_url": emb_url,
+        "embedding_model": emb_model,
+        "embedding_api_key": emb_masked_key,
     }
     return success_response(data)
 
@@ -89,6 +100,20 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
     if payload.system_prompt is not None:
         cfg.system_prompt = payload.system_prompt.strip()
 
+    # 4. 更新 Embedding 参数
+    if payload.embedding_provider is not None:
+        cfg.embedding_provider = payload.embedding_provider.strip()
+    if payload.embedding_base_url is not None:
+        cfg.embedding_base_url = payload.embedding_base_url.strip()
+    if payload.embedding_model is not None:
+        cfg.embedding_model = payload.embedding_model.strip()
+    if payload.embedding_api_key is not None:
+        k = payload.embedding_api_key.strip()
+        if k and "••" not in k:
+            cfg.embedding_api_key = k
+        elif not k:
+            cfg.embedding_api_key = ""
+
     db.add(cfg)
     await db.commit()
     await db.refresh(cfg)
@@ -99,6 +124,7 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
     model = cfg.llm_model if cfg.llm_model is not None else settings.LLM_MODEL
     masked_key = _mask_api_key(cfg.llm_api_key if cfg.llm_api_key is not None else settings.LLM_API_KEY)
     system_prompt = cfg.system_prompt if cfg.system_prompt is not None else ""
+    emb_masked_key = _mask_api_key(cfg.embedding_api_key if cfg.embedding_api_key is not None else "")
 
     data = {
         "chunk_size": cfg.chunk_size,
@@ -112,6 +138,10 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
         "llm_api_key": masked_key,
         "llm_temperature": cfg.llm_temperature,
         "system_prompt": system_prompt,
+        "embedding_provider": cfg.embedding_provider or "same_as_llm",
+        "embedding_base_url": cfg.embedding_base_url or "",
+        "embedding_model": cfg.embedding_model or "",
+        "embedding_api_key": emb_masked_key,
     }
     return success_response(data)
 

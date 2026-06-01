@@ -6,7 +6,7 @@ from loguru import logger
 import httpx
 
 from app.config import settings
-from app.core.exceptions import LLMCallFailedError
+from app.core.exceptions import LLMCallFailedError, LLMConfigRequiredError
 
 
 async def generate_stream(
@@ -91,6 +91,9 @@ async def _generate_openai(
     active_api_key = api_key if api_key is not None else settings.LLM_API_KEY
     active_temp = temperature if temperature is not None else 0.3
 
+    if not active_api_key:
+        raise LLMConfigRequiredError("请先配置大模型 API Key，否则无法进行智能问答")
+
     base = active_base_url.rstrip('/')
     url = f"{base}/chat/completions" if base.endswith("/v1") else f"{base}/v1/chat/completions"
 
@@ -127,5 +130,9 @@ async def _generate_openai(
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
     except httpx.HTTPError as exc:
+        # 401/403 视为 API Key 无效/未配置
+        status = getattr(exc, "response", None) and getattr(exc.response, "status_code", None)
+        if status in (401, 403):
+            raise LLMConfigRequiredError(f"API Key 无效或未配置，请检查系统设置: {exc}")
         logger.error(f"llm_call_failed provider=openai model={model} error=\"{exc}\"")
         raise LLMCallFailedError(f"LLM 调用失败: {exc}")
