@@ -2,10 +2,10 @@
 
 import React, { useRef, useEffect } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
-import { 
-  Send, 
-  Terminal, 
-  Paperclip 
+import {
+  Send,
+  Terminal,
+  Database
 } from "lucide-react";
 
 interface ChatInputAreaProps {
@@ -18,7 +18,10 @@ export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
     activeConversationId,
     sendMessage,
     isGenerating,
-    systemConfig
+    systemConfig,
+    knowledgeBases,
+    activeKbId,
+    setActiveKbId,
   } = usemindvaults();
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -41,6 +44,9 @@ export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
     }
   };
 
+  const selectedKb = knowledgeBases.find(kb => String(kb.id) === activeKbId);
+  const isAuto = !activeKbId || activeKbId === "0";
+
   return (
     <footer className="p-4 md:p-6 border-t border-slate-200 bg-white select-none z-10 shrink-0">
       <div className="max-w-3xl mx-auto space-y-2.5">
@@ -60,17 +66,34 @@ export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
           <div className="flex items-center justify-between px-4 pb-2 shrink-0 border-t border-slate-150 pt-2.5 bg-slate-50/50">
             {/* Utilities shortcut bar */}
             <div className="flex items-center gap-1.5">
-              <button 
-                onClick={() => alert("此原型已自动关联当前已存储的本地向量数据库。")}
-                className="text-slate-400 hover:text-indigo-500 p-1.5 rounded-lg hover:bg-slate-200/50 transition-all duration-150 flex items-center gap-1 text-[11px]"
-                title="知识库设置"
-              >
-                <Paperclip className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline font-semibold">附加本地知识库</span>
-              </button>
-              
+              {/* KB selector dropdown */}
+              <div className="relative flex items-center gap-1.5">
+                <Database className="h-3.5 w-3.5 text-indigo-400" />
+                <select
+                  value={activeKbId || "0"}
+                  onChange={(e) => setActiveKbId(e.target.value === "0" ? null : e.target.value)}
+                  className="text-[11px] font-semibold bg-transparent border-0 text-slate-600 hover:text-indigo-600 cursor-pointer focus:outline-none focus:ring-0 appearance-none pr-4 bg-right bg-no-repeat"
+                  style={{
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E")`,
+                    backgroundPosition: "right center",
+                  }}
+                >
+                  <option value="0">自动（系统判断）</option>
+                  {knowledgeBases.map((kb) => (
+                    <option key={kb.id} value={String(kb.id)}>
+                      {kb.name}
+                    </option>
+                  ))}
+                </select>
+                {!isAuto && selectedKb && (
+                  <span className="text-[10px] text-slate-400 hidden sm:inline">
+                    ({selectedKb.doc_count} 篇文档)
+                  </span>
+                )}
+              </div>
+
               <div className="h-3 w-[1px] bg-slate-200 mx-1 hidden sm:block" />
-              
+
               <span className="text-[10px] text-slate-400 hidden sm:inline-flex items-center gap-1">
                 <Terminal className="h-3 w-3 text-indigo-400" />
                 <span>按 Enter 发送 / Shift+Enter 换行</span>
