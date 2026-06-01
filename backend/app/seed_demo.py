@@ -328,9 +328,9 @@ SAMPLE_KB = [
 # ============================================================
 
 
-async def seed():
+async def seed(llm_api_key: str | None = None, embedding_api_key: str | None = None):
     async with AsyncSessionLocal() as db:
-        # 每次发布清空旧数据重新写入
+        # 每次发布清空旧数据重新写入（system_config 独立，不丢配置）
         print("[seed] Demo 模式：清除旧数据...")
         await db.execute(text("DELETE FROM kb_qa_records"))
         await db.execute(text("DELETE FROM kb_sessions"))
@@ -386,7 +386,11 @@ async def seed():
                 # 走真实摄入管道：解析 → 切片 → 向量化 → 入库
                 print(f"[seed]     摄入文档: {doc_data['filename']} (id={doc_id})")
                 try:
-                    await ingest_document(db, doc_id, "txt", str(dest_path))
+                    await ingest_document(
+                        db, doc_id, "txt", str(dest_path),
+                        llm_api_key=llm_api_key,
+                        embedding_api_key=embedding_api_key,
+                    )
                     doc_count += 1
                 except Exception as exc:
                     print(f"[seed]     警告：文档摄入失败 (doc_id={doc_id}): {exc}")

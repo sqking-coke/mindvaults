@@ -100,25 +100,37 @@ async def chat_stream(
     yield ("start", json.dumps({"status": "processing"}))
 
     # — 0. 提前获取配置 —
+    from app.models.system_config import SystemConfig
     from app.services.retrieval_service import get_config
-    cfg = await get_config(db)
-    is_demo = settings.DEMO_MODE  # demo 模式不落库会话和 QA 记录
-    provider = cfg.llm_provider if cfg.llm_provider is not None else settings.LLM_PROVIDER
-    model = cfg.llm_model if cfg.llm_model is not None else settings.LLM_MODEL
-    api_key = cfg.llm_api_key if cfg.llm_api_key is not None else settings.LLM_API_KEY
-    base_url = cfg.llm_base_url if cfg.llm_base_url is not None else settings.LLM_BASE_URL
-    threshold = cfg.similarity_threshold if cfg.similarity_threshold is not None else 0.5
 
-    # Embedding 配置：same_as_llm 时 URL/Key 优先走 settings 专用配置，其次复用 LLM
-    emb_provider = cfg.embedding_provider if cfg.embedding_provider else "same_as_llm"
+    sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
+    if sys_cfg is None:
+        sys_cfg = SystemConfig(id=1)
+        db.add(sys_cfg)
+        await db.flush()
+
+    kb_cfg = await get_config(db)
+    is_demo = settings.DEMO_MODE
+    provider = sys_cfg.llm_provider if sys_cfg.llm_provider is not None else settings.LLM_PROVIDER
+    model = sys_cfg.llm_model if sys_cfg.llm_model is not None else settings.LLM_MODEL
+    api_key = sys_cfg.llm_api_key if sys_cfg.llm_api_key is not None else settings.LLM_API_KEY
+    base_url = sys_cfg.llm_base_url if sys_cfg.llm_base_url is not None else settings.LLM_BASE_URL
+    threshold = kb_cfg.similarity_threshold if kb_cfg.similarity_threshold is not None else 0.5
+
+    emb_provider = sys_cfg.embedding_provider if sys_cfg.embedding_provider else "same_as_llm"
     if emb_provider == "same_as_llm":
         emb_api_key = settings.EMBEDDING_API_KEY or api_key
         emb_base_url = settings.EMBEDDING_BASE_URL or base_url
         emb_provider_for_call = "openai"
+    elif emb_provider == "ollama":
+        emb_api_key = None
+        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
+        emb_provider_for_call = "ollama"
     else:
-        emb_api_key = cfg.embedding_api_key or settings.EMBEDDING_API_KEY or api_key
-        emb_base_url = cfg.embedding_base_url or settings.EMBEDDING_BASE_URL or base_url
-        emb_provider_for_call = emb_provider
+        # openai / siliconflow / deepseek 等均走 OpenAI 兼容 API
+        emb_api_key = sys_cfg.embedding_api_key or settings.EMBEDDING_API_KEY
+        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
+        emb_provider_for_call = "openai"
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
 
     logger.info(
