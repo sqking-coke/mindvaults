@@ -133,13 +133,15 @@ export default function KBPage() {
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setIsImportOpen(true)}
-                      className="mt-4 w-full py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 hover:text-violet-700 rounded-xl text-xs font-semibold text-violet-600 transition-all focus:outline-none flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                      立即导入 Obsidian Vault
-                    </button>
+                    {process.env.NEXT_PUBLIC_DEMO_MODE !== "true" && (
+                      <button
+                        onClick={() => setIsImportOpen(true)}
+                        className="mt-4 w-full py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 hover:text-violet-700 rounded-xl text-xs font-semibold text-violet-600 transition-all focus:outline-none flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                        立即导入 Obsidian Vault
+                      </button>
+                    )}
                   </div>
                 </div>
                 <DocumentTable />
