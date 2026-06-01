@@ -22,8 +22,11 @@ async def get_config_by_kb(db: AsyncSession, kb_id: int) -> KbConfig:
     """获取指定 KB 的配置；不存在就返回默认值（不创建 KB）。"""
     row = (await db.execute(select(KbConfig).where(KbConfig.kb_id == kb_id))).scalar_one_or_none()
     if row is None:
-        row = KbConfig(kb_id=kb_id)
-        # 不持久化，只返回内存中的默认配置
+        row = KbConfig(
+            kb_id=kb_id,
+            chunk_size=300, chunk_overlap=100, top_k=5,
+            similarity_threshold=0.35, embedding_dim=1024,
+        )
     return row
 
 
