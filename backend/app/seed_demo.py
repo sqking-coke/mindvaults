@@ -10,12 +10,13 @@ KB 设计：
 import asyncio
 import os
 import sys
-import tempfile
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
+from app.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services.ingestion_service import ingest_document
 
@@ -337,72 +338,67 @@ async def seed():
             return
 
         print("[seed] Demo 模式：开始写入示例数据...")
-        tmp_dir = tempfile.mkdtemp(prefix="mindvaults_seed_")
+        upload_dir = Path(settings.UPLOAD_DIR)
+        upload_dir.mkdir(parents=True, exist_ok=True)
         doc_count = 0
 
-        try:
-            for kb_data in SAMPLE_KB:
-                # 创建知识库
+        for kb_data in SAMPLE_KB:
+            # 创建知识库
+            result = await db.execute(
+                text(
+                    "INSERT INTO kb_knowledge_bases (name, description) "
+                    "VALUES (:name, :desc) RETURNING id"
+                ),
+                {"name": kb_data["name"], "desc": kb_data["description"]},
+            )
+            kb_id = result.scalar()
+            await db.commit()
+            print(f"[seed]   创建知识库: {kb_data['name']} (id={kb_id})")
+
+            for doc_data in kb_data["docs"]:
+                # 写入持久化上传目录（和行为与用户上传一致）
+                stored_name = f"seed_{uuid.uuid4().hex}.txt"
+                dest_path = upload_dir / stored_name
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    f.write(doc_data["content"])
+
+                content_bytes = doc_data["content"].encode("utf-8")
+                file_size = len(content_bytes)
+
+                # 创建文档记录
                 result = await db.execute(
                     text(
-                        "INSERT INTO kb_knowledge_bases (name, description) "
-                        "VALUES (:name, :desc) RETURNING id"
+                        "INSERT INTO kb_documents (kb_id, doc_name, doc_type, file_path, file_size, "
+                        "status, status_detail, chunk_count) "
+                        "VALUES (:kb_id, :name, 'txt', :path, :size, 1, '{}', 0) RETURNING id"
                     ),
-                    {"name": kb_data["name"], "desc": kb_data["description"]},
+                    {
+                        "kb_id": kb_id,
+                        "name": doc_data["filename"],
+                        "path": str(dest_path),
+                        "size": file_size,
+                    },
                 )
-                kb_id = result.scalar()
+                doc_id = result.scalar()
                 await db.commit()
-                print(f"[seed]   创建知识库: {kb_data['name']} (id={kb_id})")
 
-                for doc_data in kb_data["docs"]:
-                    # 写入临时文件
-                    tmp_path = os.path.join(tmp_dir, doc_data["filename"])
-                    with open(tmp_path, "w", encoding="utf-8") as f:
-                        f.write(doc_data["content"])
-
-                    content_bytes = doc_data["content"].encode("utf-8")
-                    file_size = len(content_bytes)
-
-                    # 创建文档记录
-                    result = await db.execute(
+                # 走真实摄入管道：解析 → 切片 → 向量化 → 入库
+                print(f"[seed]     摄入文档: {doc_data['filename']} (id={doc_id})")
+                try:
+                    await ingest_document(db, doc_id, "txt", str(dest_path))
+                    doc_count += 1
+                except Exception as exc:
+                    print(f"[seed]     警告：文档摄入失败 (doc_id={doc_id}): {exc}")
+                    await db.execute(
                         text(
-                            "INSERT INTO kb_documents (kb_id, doc_name, doc_type, file_size, "
-                            "status, status_detail, char_count, chunk_count) "
-                            "VALUES (:kb_id, :name, 'txt', :size, 1, '{}', :chars, 0) RETURNING id"
+                            "UPDATE kb_documents SET status=0, status_detail=:detail "
+                            "WHERE id=:id"
                         ),
-                        {
-                            "kb_id": kb_id,
-                            "name": doc_data["filename"],
-                            "size": file_size,
-                            "chars": len(doc_data["content"]),
-                        },
+                        {"id": doc_id, "detail": str(exc)[:500]},
                     )
-                    doc_id = result.scalar()
                     await db.commit()
 
-                    # 走真实摄入管道：解析 → 切片 → 向量化 → 入库
-                    print(f"[seed]     摄入文档: {doc_data['filename']} (id={doc_id})")
-                    try:
-                        await ingest_document(db, doc_id, "txt", tmp_path)
-                        doc_count += 1
-                    except Exception as exc:
-                        print(f"[seed]     警告：文档摄入失败 (doc_id={doc_id}): {exc}")
-                        # 标记为失败，继续处理下一个
-                        await db.execute(
-                            text(
-                                "UPDATE kb_documents SET status=0, status_detail=:detail "
-                                "WHERE id=:id"
-                            ),
-                            {"id": doc_id, "detail": str(exc)[:500]},
-                        )
-                        await db.commit()
-
-            print(f"[seed] 示例数据写入完成：{len(SAMPLE_KB)} 个知识库，{doc_count} 篇文档")
-        finally:
-            # 清理临时文件
-            for f in os.listdir(tmp_dir):
-                os.unlink(os.path.join(tmp_dir, f))
-            os.rmdir(tmp_dir)
+        print(f"[seed] 示例数据写入完成：{len(SAMPLE_KB)} 个知识库，{doc_count} 篇文档")
 
 
 if __name__ == "__main__":

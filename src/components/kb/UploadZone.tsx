@@ -41,10 +41,19 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    if (isDemo) {
+      showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+      return;
+    }
     handleFiles(Array.from(e.dataTransfer.files));
   };
 
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isDemo) {
+      showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     handleFiles(Array.from(e.target.files || []));
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -56,10 +65,20 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      onClick={() => fileInputRef.current?.click()}
+      onClick={() => {
+        if (isDemo) {
+          showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+          return;
+        }
+        fileInputRef.current?.click();
+      }}
       onKeyDown={(e) => {
         if ((e.key === "Enter" || e.key === " ") && !isDragging) {
           e.preventDefault();
+          if (isDemo) {
+            showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+            return;
+          }
           fileInputRef.current?.click();
         }
       }}
