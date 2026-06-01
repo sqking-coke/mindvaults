@@ -118,6 +118,7 @@ async def chat_stream(
     threshold = kb_cfg.similarity_threshold if kb_cfg.similarity_threshold is not None else 0.5
 
     emb_provider = sys_cfg.embedding_provider if sys_cfg.embedding_provider else "same_as_llm"
+    emb_model = sys_cfg.embedding_model if sys_cfg and sys_cfg.embedding_model else settings.EMBEDDING_MODEL
     if emb_provider == "same_as_llm":
         emb_api_key = settings.EMBEDDING_API_KEY or api_key
         emb_base_url = settings.EMBEDDING_BASE_URL or base_url
@@ -189,7 +190,11 @@ async def chat_stream(
     yield ("progress", json.dumps(step))
 
     try:
-        query_embedding = await embed_text(req.question, api_key=emb_api_key, base_url=emb_base_url, provider=emb_provider_for_call)
+        query_embedding = await embed_text(
+            req.question,
+            api_key=emb_api_key, base_url=emb_base_url,
+            provider=emb_provider_for_call, model=emb_model,
+        )
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")

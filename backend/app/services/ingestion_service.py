@@ -95,6 +95,7 @@ async def ingest_document(
             emb_base_url = sys_emb_url or settings.EMBEDDING_BASE_URL
 
         emb_provider_for_call = "ollama" if emb_provider == "ollama" else "openai"
+        emb_model = (sys_cfg.embedding_model if sys_cfg and sys_cfg.embedding_model else settings.EMBEDDING_MODEL)
 
         try:
             embeddings = await embed_batch(
@@ -102,6 +103,7 @@ async def ingest_document(
                 api_key=emb_api_key,
                 base_url=emb_base_url,
                 provider=emb_provider_for_call,
+                model=emb_model,
             )
         except Exception as exc:
             logger.error(f"embedding_batch_failed doc_id={doc_id} chunks={len(chunk_texts)} error=\"{exc}\"")
