@@ -53,31 +53,31 @@ const qaResponses = {
 
 const modelMetrics = {
   ds: {
-    name: "DeepSeek-R1 (8B)",
-    vram: "4.8 GB",
-    speed: "24 tps",
-    cpu: "CPU 22%",
-    barVram: "60%",
-    barSpeed: "75%",
-    barCpu: "22%"
+    name: "DeepSeek-V4 (236B MoE)",
+    vram: "5.2 GB",
+    speed: "38 tps",
+    cpu: "CPU 16%",
+    barVram: "32%",
+    barSpeed: "88%",
+    barCpu: "16%"
   },
   qw: {
-    name: "Qwen-2.5 (14B)",
-    vram: "8.1 GB",
-    speed: "18 tps",
-    cpu: "CPU 34%",
-    barVram: "92%",
-    barSpeed: "56%",
-    barCpu: "34%"
+    name: "Qwen3 (235B MoE)",
+    vram: "6.8 GB",
+    speed: "28 tps",
+    cpu: "CPU 24%",
+    barVram: "42%",
+    barSpeed: "72%",
+    barCpu: "24%"
   },
   ll: {
-    name: "Llama-3 (8B)",
-    vram: "4.4 GB",
-    speed: "32 tps",
-    cpu: "CPU 18%",
-    barVram: "55%",
-    barSpeed: "98%",
-    barCpu: "18%"
+    name: "Llama 4 (109B MoE)",
+    vram: "4.8 GB",
+    speed: "45 tps",
+    cpu: "CPU 12%",
+    barVram: "28%",
+    barSpeed: "96%",
+    barCpu: "12%"
   }
 };
 
@@ -1063,7 +1063,7 @@ export default function Home() {
                 真正的技术主权意味着选择的自由。mindvaults 极简适配本地模型平台 Ollama，同时也支持加密代理连接第三方安全商业大模型。
               </p>
               <ul className="feature-bullets">
-                <li>一键绑定运行在本地的 DeepSeek-R1、Qwen2.5 或者是 Llama3</li>
+                <li>一键绑定运行在本地的 DeepSeek-V4、Qwen3 或者是 Llama 4</li>
                 <li>内置硬件 VRAM 自动评估器，自动推荐合适的量化密级（Q4/Q8）</li>
                 <li>极速热切换：问答过程中可随时秒级切换后端推理大脑</li>
               </ul>
@@ -1080,13 +1080,13 @@ export default function Home() {
               <div className="demo-body" style={{ backgroundColor: "#0b0f19" }}>
                 <div className="model-swap-tabs">
                   <button className={`model-tab ${activeModel === "ds" ? "active" : ""}`} onClick={() => setActiveModel("ds")}>
-                    DeepSeek-R1 (8B)
+                    DeepSeek-V4
                   </button>
                   <button className={`model-tab ${activeModel === "qw" ? "active" : ""}`} onClick={() => setActiveModel("qw")}>
-                    Qwen-2.5 (14B)
+                    Qwen3
                   </button>
                   <button className={`model-tab ${activeModel === "ll" ? "active" : ""}`} onClick={() => setActiveModel("ll")}>
-                    Llama-3 (8B)
+                    Llama 4
                   </button>
                 </div>
 
