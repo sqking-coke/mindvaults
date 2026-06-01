@@ -165,6 +165,12 @@ async def reindex_doc(
 @router.delete("/documents/{doc_id}")
 async def delete_doc(doc_id: int, db: AsyncSession = Depends(get_db)):
     """软删除文档。"""
+    if settings.DEMO_MODE:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail="演示环境已禁用文档删除功能。",
+        )
     await hard_delete_document(db, doc_id)
     return success_response(None)
 

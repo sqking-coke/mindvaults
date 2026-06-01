@@ -66,7 +66,12 @@ async def ingest_document(db: AsyncSession, doc_id: int, doc_type: str, file_pat
 
         chunk_texts = [c[0] for c in chunks_with_pages]
         try:
-            embeddings = await embed_batch(chunk_texts)
+            embeddings = await embed_batch(
+                chunk_texts,
+                api_key=config.embedding_api_key,
+                base_url=config.embedding_base_url,
+                provider=config.embedding_provider,
+            )
         except Exception as exc:
             logger.error(f"embedding_batch_failed doc_id={doc_id} chunks={len(chunk_texts)} error=\"{exc}\"")
             doc.status = DOC_STATUS_FAILED

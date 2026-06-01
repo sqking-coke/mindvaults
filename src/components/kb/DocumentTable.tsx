@@ -24,12 +24,13 @@ interface DocumentTableProps {
 }
 
 export default function DocumentTable({ opsMode = false, opsDocuments }: DocumentTableProps) {
-  const { 
-    documents, 
-    activeKbId, 
-    reindexDocument, 
+  const {
+    documents,
+    activeKbId,
+    reindexDocument,
     toggleDocumentStatus,
-    deleteDocument 
+    deleteDocument,
+    isDemo,
   } = usemindvaults();
 
   // Filter docs for active KB — ops 模式优先使用外部传入的列表
@@ -286,15 +287,17 @@ export default function DocumentTable({ opsMode = false, opsDocuments }: Documen
                             </button>
                           )}
 
-                          {/* 删除文档 */}
-                          <button
-                            onClick={() => setDeleteConfirm({ id: doc.id, name: doc.name })}
-                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-500 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
-                            title="删除文档及所有切片（不可恢复）"
-                            aria-label={`删除文件: ${doc.name}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {/* 删除文档 — demo 模式隐藏 */}
+                          {!isDemo && (
+                            <button
+                              onClick={() => setDeleteConfirm({ id: doc.id, name: doc.name })}
+                              className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-500 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
+                              title="删除文档及所有切片（不可恢复）"
+                              aria-label={`删除文件: ${doc.name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
