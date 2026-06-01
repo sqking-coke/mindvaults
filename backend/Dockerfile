@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl postgresql-client redis-tools \
+    build-essential curl libpq-dev postgresql-client redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
