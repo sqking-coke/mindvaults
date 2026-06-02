@@ -8,47 +8,31 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "v0.0.1",
-    date: "2026-05-31",
-    title: "🎉 首个公开测试版 — 架构重构",
+    version: "v0.4.0",
+    date: "2026-06-02",
+    title: "KB 智能路由方案 & 数据治理蓝图",
     description:
-      "Sidebar 提升至共享 Route Group Layout，路由切换不再重新挂载，彻底解决导航闪烁与系统状态重复请求。设置面板从侧边栏 Modal 独立为 /settings 页面。统一品牌图标（logo.svg 应用于浏览器标签页与侧边栏），修正 landing page 工具描述与文件格式声明对齐实际实现。修复空会话删除失败、nav link 白框闪烁、重复 fetchSystemInfo 调用等问题。后端 CPU 信息启动时缓存、round_key 参数修正。",
-    tags: ["feature", "refactor", "fix"],
+      "KB 智能路由三层降级匹配方案：质心向量匹配（<1ms）→ LLM 语义路由（~300ms）→ 用户引导，覆盖 9 种异常兜底场景。数据治理系统蓝图：对话知识沉淀（QA 定时提炼→审核→入库）、Skill 集成（Claude Code 外部对话收集入口）、概念/术语关联（摄入时 LLM 抽取+RAG 上下文注入+hover 展示）、知识库内容再组织（多维度诊断+用户决策治理），新增 5 份设计文档。前端 KB 选择器从原生 select 重构为浮动面板，支持自动（智能路由）/指定 KB/全库搜索三种模式。system_config 表补充进数据库设计文档。",
+    tags: ["feature", "docs", "refactor"],
   },
   {
-    version: "v0.0.1",
+    version: "v0.3.0",
     date: "2026-05-31",
-    title: "规范制定 & 更新日志",
+    title: "架构重构 & 规范体系建立",
     description:
-      "日志规范（毫秒级时间戳、traceId 全链路追踪、sessionId、请求/响应体 JSON 日志、敏感字段脱敏、慢操作阈值）。统一异常处理规范（三层异常体系、18 个错误码、全局异常处理器）。新增独立更新日志页面，首页模型选择器固定化展示。",
-    tags: ["docs", "infra"],
+      "Sidebar 提升至共享 Route Group Layout，路由切换不再重新挂载，彻底解决导航闪烁与系统状态重复请求。设置面板独立为 /settings 页面。统一品牌图标与日期格式化工具。推理过程 Redis 缓存（7 天 TTL），session 删除时同步清理。摄入管道竞态修复，前端 KnowledgeBase 从 mock 改为真实 API 持久化。制定企业级日志规范（毫秒级时间戳、traceId 全链路追踪、敏感字段脱敏）与统一异常处理规范（三层异常体系、18 个错误码）。新增独立更新日志页面。",
+    tags: ["feature", "refactor", "fix", "docs", "infra"],
   },
   {
-    version: "v0.0.1",
-    date: "2026-05-31",
-    title: "推理 Redis 缓存 & 基础优化",
-    description:
-      "推理过程 Redis 缓存（7 天 TTL），session 删除时同步清理。统一日期格式化工具，知识库类型 snake_case 对齐后端 API。摄入管道竞态修复，Toast 去演示化。前端 KnowledgeBase 从 mock 改为真实 API 持久化。",
-    tags: ["feature", "fix"],
-  },
-  {
-    version: "v0.0.1",
+    version: "v0.2.0",
     date: "2026-05-30",
-    title: "多知识库支持 & 推理过程可视化",
+    title: "多知识库架构 & 模型动态切换 & Obsidian 导入",
     description:
-      "完整多 KB 架构：knowledge_bases 表 + CRUD API + 前端管理面板。检索按 KB 隔离，文档归属 KB，会话绑定 KB。推理过程实时面板（SSE progress 事件捕获），历史对话删除持久化。首页 Mockup 对接真实配置，提问模板动态高频问题。侧边栏系统状态实时 CPU/内存监控。",
+      "完整多 KB 架构：knowledge_bases 表 + CRUD API + 前端管理面板，检索/文档/会话均按 KB 隔离。推理过程实时可视化面板（SSE progress 事件捕获）。LLM/Embedding Provider 可配置，支持本地 Ollama 和云端 API 热切换。新增 Obsidian Vault 批量导入（路径扫描 + 拖拽上传），自动解析 YAML Frontmatter 和 Wiki 链接。项目重命名 mindvaults，重组文档体系。侧边栏系统状态实时 CPU/内存监控。",
     tags: ["feature", "refactor"],
   },
   {
-    version: "v0.0.1",
-    date: "2026-05-30",
-    title: "大模型动态切换 & Obsidian Vault 导入",
-    description:
-      "LLM/Embedding Provider 可配置，支持本地 Ollama 和云端 API 热切换。新增 Obsidian Vault 批量导入（路径扫描 + 拖拽上传），自动解析 YAML Frontmatter 和 Wiki 链接。项目重命名 mindvaults，重组文档体系。",
-    tags: ["feature", "refactor"],
-  },
-  {
-    version: "v0.0.1",
+    version: "v0.1.0",
     date: "2026-05-29",
     title: "P1 产品化增强",
     description:

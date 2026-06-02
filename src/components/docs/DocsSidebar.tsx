@@ -122,7 +122,7 @@ export default function DocsSidebar() {
           </div>
           <div>
             <span className="font-bold text-sm text-slate-800 dark:text-slate-200">文档中心</span>
-            <span className="block text-[9px] text-slate-400 dark:text-slate-500 font-medium">v0.0.1</span>
+            <span className="block text-[9px] text-slate-400 dark:text-slate-500 font-medium">v0.4.0</span>
           </div>
         </Link>
       </div>
