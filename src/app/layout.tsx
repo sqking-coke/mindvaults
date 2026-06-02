@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { mindvaultsProvider as MindVaultsProvider } from "@/context/mindvaultsContext";
+import { mindvaultsProvider as MindvaultsProvider } from "@/context/mindvaultsContext";
 import Toast from "@/components/shared/Toast";
 
 export const metadata: Metadata = {
@@ -24,10 +24,10 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body className="h-full font-sans antialiased bg-slate-50 text-slate-900 selection:bg-indigo-100">
-        <MindVaultsProvider>
+        <MindvaultsProvider>
           {children}
           <Toast />
-        </MindVaultsProvider>
+        </MindvaultsProvider>
       </body>
     </html>
   );

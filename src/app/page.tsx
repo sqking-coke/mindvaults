@@ -1259,7 +1259,7 @@ export default function Home() {
             {/* FAQ 1 */}
             <div className={`faq-item ${activeFaq === 1 ? "active" : ""}`}>
               <button className="faq-trigger" onClick={() => toggleFaq(1)}>
-                <span>MindVault 支持解析哪些本地文件格式？</span>
+                <span>mindvaults 支持解析哪些本地文件格式？</span>
                 <span className="faq-arrow">{activeFaq === 1 ? "－" : "＋"}</span>
               </button>
               <div className="faq-content" style={{ maxHeight: activeFaq === 1 ? "200px" : "0" }}>
