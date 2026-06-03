@@ -14,6 +14,7 @@ class RefChunk(BaseModel):
     content: str
     similarity: float
     page: Optional[int] = None
+    result_type: str = "chunk"  # "chunk" | "insight" — 来源类型
 
     model_config = {"from_attributes": True}
 

@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.core.middleware import limiter
 from app.schemas.chat import ChatRequest
 from app.schemas.common import success_response
-from app.services.chat_service import chat_stream, get_chat_history, list_sessions, delete_session
+from app.services.chat_service import chat_stream
+from app.services.session_service import get_chat_history, list_sessions, delete_session
 
 router = APIRouter(tags=["chat"])
 
@@ -77,3 +79,30 @@ async def get_thinking(session_id: str, round_key: str | None = Query(None)):
         return success_response({"session_id": session_id, "steps": steps})
     except Exception:
         return success_response({"session_id": session_id, "steps": []})
+
+
+@router.post("/chat/save-insight")
+async def save_insight(
+    qa_record_id: int = Query(..., description="QA 记录 ID"),
+    kb_id: int = Query(..., description="目标知识库 ID"),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动保存某条 QA 回答为知识点。"""
+    from app.models.system_config import SystemConfig
+    from app.services.insight_service import save_insight_from_qa
+
+    sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
+    if sys_cfg is None:
+        sys_cfg = SystemConfig(id=1)
+        db.add(sys_cfg)
+        await db.flush()
+
+    insight = await save_insight_from_qa(db, qa_record_id, kb_id, sys_cfg)
+    if insight is None:
+        from app.core.exceptions import BadRequestError
+        raise BadRequestError(message="无法从该回答中提炼知识点，可能信息量不足")
+
+    await db.commit()
+
+    from app.schemas.insight import InsightResponse
+    return success_response(InsightResponse.model_validate(insight).model_dump())

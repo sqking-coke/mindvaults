@@ -22,6 +22,13 @@ class SystemConfigResponse(BaseModel):
     route_centroid_gap: float = Field(0.08, description="Layer 1 前两名最小差距阈值")
     route_llm_confidence: float = Field(0.60, description="Layer 2 LLM 路由置信度阈值")
 
+    # 对话知识沉淀配置
+    insight_extraction_enabled: bool = Field(True, description="启用对话知识提炼")
+    insight_extraction_schedule: str = Field("02:00", description="批处理触发时间 (HH:MM)")
+    insight_min_answer_length: int = Field(200, description="答案最少字符数阈值")
+    insight_dedup_threshold: float = Field(0.92, description="向量去重相似度阈值")
+    insight_auto_approve_confidence: float = Field(0.95, description="自动通过的置信度阈值")
+
     class Config:
         from_attributes = True
 
@@ -45,3 +52,10 @@ class SystemConfigRequest(BaseModel):
     route_centroid_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
     route_centroid_gap: Optional[float] = Field(None, ge=0.0, le=1.0)
     route_llm_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+    # 对话知识沉淀配置
+    insight_extraction_enabled: Optional[bool] = Field(None)
+    insight_extraction_schedule: Optional[str] = Field(None, max_length=5)
+    insight_min_answer_length: Optional[int] = Field(None, ge=50)
+    insight_dedup_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
+    insight_auto_approve_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)

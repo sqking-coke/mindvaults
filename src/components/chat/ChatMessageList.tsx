@@ -13,7 +13,7 @@ import {
   Share2,
   Brain
 } from "lucide-react";
-import { fetchFrequentQuestions } from "@/services/ragService";
+import { fetchFrequentQuestions, saveInsight } from "@/services/ragService";
 import KnowledgeCard from "./KnowledgeCard";
 import WechatExport from "./WechatExport";
 
@@ -22,11 +22,13 @@ interface ChatMessageListProps {
 }
 
 export default function ChatMessageList({ onSelectTemplate }: ChatMessageListProps) {
-  const { 
-    conversations, 
-    activeConversationId, 
-    isGenerating, 
-    setSelectedCitation 
+  const {
+    conversations,
+    activeConversationId,
+    isGenerating,
+    setSelectedCitation,
+    activeKbId,
+    showToast,
   } = usemindvaults();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -43,6 +45,9 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
   } | null>(null);
 
   const [collapsedThinkings, setCollapsedThinkings] = useState<Set<string>>(new Set());
+
+  // 已保存到知识库的消息 ID 集合
+  const [savedMessageIds, setSavedMessageIds] = useState<Set<string>>(new Set());
 
   // 高频问题（Top-3 动态模板）
   const [frequentQuestions, setFrequentQuestions] = useState<Array<{ question: string; count: number }>>([]);
@@ -336,6 +341,7 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                               <div className="overflow-hidden pr-1">
                                 <span className="text-[11px] font-semibold text-slate-700 block truncate group-hover:text-indigo-600 transition-colors">
                                   {cit.docName}
+                                  {cit.result_type === "insight" ? " 💡" : ""}
                                 </span>
                                 <span className="text-[9px] text-slate-400 block font-mono">
                                   第 {cit.page || 1} 页 • 相似度 {(cit.score * 100).toFixed(0)}%
@@ -392,6 +398,42 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                             </svg>
                             <span>微信导出</span>
                           </button>
+
+                          {(() => {
+                            const alreadySaved = savedMessageIds.has(msg.id);
+                            return (
+                              <button
+                                onClick={async () => {
+                                  if (alreadySaved) return;
+                                  const kbId = activeKbId ? parseInt(activeKbId) : 1;
+                                  try {
+                                    const msgId = msg.id;
+                                    const qaIdMatch = msgId.match(/msg-assistant-(\d+)/);
+                                    if (qaIdMatch) {
+                                      await saveInsight(parseInt(qaIdMatch[1]), kbId);
+                                      setSavedMessageIds(prev => new Set(prev).add(msg.id));
+                                      showToast("知识点已提交审核", "success");
+                                    } else {
+                                      showToast("无法关联 QA 记录，请通过审核页面手动处理", "error");
+                                    }
+                                  } catch {
+                                    showToast("保存失败，请稍后重试", "error");
+                                  }
+                                }}
+                                disabled={alreadySaved}
+                                className={`flex items-center gap-1 font-medium transition-colors select-none border-none bg-transparent p-0 ${
+                                  alreadySaved
+                                    ? "text-slate-500 cursor-not-allowed"
+                                    : "text-amber-600 hover:text-amber-800 cursor-pointer"
+                                }`}
+                                title={alreadySaved ? "已保存到知识库" : "保存到知识库"}
+                                aria-label={alreadySaved ? "已保存到知识库" : "保存当前回答到知识库"}
+                              >
+                                <span>{alreadySaved ? "✅" : "💾"}</span>
+                                <span>{alreadySaved ? "已保存" : "保存到知识库"}</span>
+                              </button>
+                            );
+                          })()}
                         </>
                       )}
                     </div>

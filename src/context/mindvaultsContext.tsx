@@ -311,10 +311,6 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteConversation = useCallback(
     (id: string) => {
-      // 空会话（无消息）仅存在于前端，跳过远端删除
-      const conv = conversations.find((c) => c.id === id);
-      const needsBackendDelete = conv && conv.messages.length > 0;
-
       setConversations((prev) => {
         const remaining = prev.filter((c) => c.id !== id);
         if (activeConversationId === id) {
@@ -323,9 +319,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return remaining;
       });
 
-      if (!needsBackendDelete) return;
-
-      // 同步删除后端数据
+      // 始终同步删除后端数据（消息是懒加载的，不能靠 messages.length 判断）
       apiDeleteSession(id)
         .then(() => showToast("对话已删除"))
         .catch((err) => {
@@ -333,7 +327,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           showToast("删除失败，请重试", "error");
         });
     },
-    [activeConversationId, conversations],
+    [activeConversationId],
   );
 
   const renameConversation = useCallback((id: string, title: string) => {
@@ -538,7 +532,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteKnowledgeBase = useCallback(
     async (id: string) => {
-      if (id === "1") return; // 不能删除默认 KB
+      // 系统保护：默认系统库不可删除
+      if (id === "1") return;
       try {
         await apiDeleteKnowledgeBase(Number(id));
         showToast("知识库已删除");

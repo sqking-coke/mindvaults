@@ -21,9 +21,10 @@ import ChunkList from "./ChunkList";
 interface DocumentTableProps {
   opsMode?: boolean;
   opsDocuments?: DocumentRecord[];  // ops 模式外部传入的文档列表
+  onRefresh?: () => void;          // ops 模式下数据刷新回调
 }
 
-export default function DocumentTable({ opsMode = false, opsDocuments }: DocumentTableProps) {
+export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh }: DocumentTableProps) {
   const { 
     documents, 
     activeKbId, 
@@ -67,6 +68,7 @@ export default function DocumentTable({ opsMode = false, opsDocuments }: Documen
     const nextStatus = currentStatus === "disabled" ? "enabled" : "disabled";
     try {
       await toggleDocumentStatus(docId, nextStatus);
+      onRefresh?.();  // ops 模式下刷新外部列表
     } catch (err) {
       alert(err instanceof Error ? err.message : "更新文档状态失败");
     }
@@ -76,6 +78,7 @@ export default function DocumentTable({ opsMode = false, opsDocuments }: Documen
     if (confirm(`确定要重新索引《${docName}》吗？这会清除该文档的所有旧切片与向量缓存，并重新分词切片摄入。`)) {
       try {
         await reindexDocument(docId);
+        onRefresh?.();
       } catch (err) {
         alert(err instanceof Error ? err.message : "重索引提交失败");
       }
@@ -223,36 +226,35 @@ export default function DocumentTable({ opsMode = false, opsDocuments }: Documen
                         <div className="flex items-center justify-end gap-2">
                           {/* Ops Actions: Enable/Disable, Reindex */}
                           {opsMode && (doc.status === "success" || doc.status === "disabled") && (
-                            <>
-                              {/* Toggle visibility */}
-                              <button
-                                onClick={() => handleToggleStatus(doc.id, doc.status)}
-                                className={`p-1.5 rounded-lg border text-xs font-semibold transition-all focus:outline-none ${
-                                  doc.status === "disabled"
-                                    ? "bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
-                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                                }`}
-                                title={doc.status === "disabled" ? "启用该文档，使其能够被对话召回" : "禁用该文档，使其暂时不参与召回"}
-                              >
-                                {doc.status === "disabled" ? (
-                                  <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />启用</span>
-                                ) : (
-                                  <span className="flex items-center gap-1"><EyeOff className="h-3.5 w-3.5" />禁用</span>
-                                )}
-                              </button>
+                            <button
+                              onClick={() => handleToggleStatus(doc.id, doc.status)}
+                              className={`p-1.5 rounded-lg border text-xs font-semibold transition-all focus:outline-none ${
+                                doc.status === "disabled"
+                                  ? "bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
+                                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                              }`}
+                              title={doc.status === "disabled" ? "启用该文档，使其能够被对话召回" : "禁用该文档，使其暂时不参与召回"}
+                            >
+                              {doc.status === "disabled" ? (
+                                <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />启用</span>
+                              ) : (
+                                <span className="flex items-center gap-1"><EyeOff className="h-3.5 w-3.5" />禁用</span>
+                              )}
+                            </button>
+                          )}
 
-                              {/* Trigger Manual Reindex */}
-                              <button
-                                onClick={() => handleReindex(doc.id, doc.name)}
-                                className="p-1.5 rounded-lg border bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 border-slate-200 hover:border-indigo-150 text-xs font-semibold transition-all focus:outline-none"
-                                title="手动重索引该文档"
-                              >
-                                <span className="flex items-center gap-1">
-                                  <RefreshCw className="h-3.5 w-3.5" />
-                                  重索引
-                                </span>
-                              </button>
-                            </>
+                          {/* Reindex — success / disabled / failed */}
+                          {opsMode && (doc.status === "success" || doc.status === "disabled" || doc.status === "failed") && (
+                            <button
+                              onClick={() => handleReindex(doc.id, doc.name)}
+                              className="p-1.5 rounded-lg border bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 border-slate-200 hover:border-indigo-150 text-xs font-semibold transition-all focus:outline-none"
+                              title="手动重索引该文档"
+                            >
+                              <span className="flex items-center gap-1">
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                重索引
+                              </span>
+                            </button>
                           )}
 
                           {/* Expanded view trigger for chunks — available in both normal and ops modes */}

@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Integer, Float, String, Text, DateTime, func
+from sqlalchemy import Integer, Boolean, Float, String, Text, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -32,6 +32,13 @@ class SystemConfig(Base):
     route_centroid_threshold: Mapped[float] = mapped_column(Float, default=0.40, nullable=False)
     route_centroid_gap: Mapped[float] = mapped_column(Float, default=0.08, nullable=False)
     route_llm_confidence: Mapped[float] = mapped_column(Float, default=0.60, nullable=False)
+
+    # 对话知识沉淀配置 (#16)
+    insight_extraction_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    insight_extraction_schedule: Mapped[str] = mapped_column(String(5), default="02:00", nullable=False)
+    insight_min_answer_length: Mapped[int] = mapped_column(Integer, default=200, nullable=False)
+    insight_dedup_threshold: Mapped[float] = mapped_column(Float, default=0.92, nullable=False)
+    insight_auto_approve_confidence: Mapped[float] = mapped_column(Float, default=0.95, nullable=False)
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -21,6 +21,9 @@ class KnowledgeBase(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    # KB 类型：general（普通）/ deposition（沉淀库）
+    kb_type: Mapped[str] = mapped_column(String(20), nullable=False, default="general")
+
     # KB 智能路由：质心向量（Layer 1 匹配用）
     centroid_embedding: Mapped[Optional[list[float]]] = mapped_column(
         Vector(1024), nullable=True

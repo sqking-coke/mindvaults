@@ -1,6 +1,7 @@
 from loguru import logger
-from sqlalchemy import select, func, type_coerce
+from sqlalchemy import select, func, type_coerce, literal, desc, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
+import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 
 from app.config import settings
@@ -47,35 +48,68 @@ async def _pgvector_search(
     thresh: float,
     kb_id: int,
 ) -> list[RefChunk]:
-    """pgvector HNSW 语义检索，返回相似切片列表（按相似度降序）。
+    """pgvector HNSW 联合检索 — chunks + approved insights。
 
     kb_id=0 时检索全部知识库，否则限定指定 KB。
+    沉积库（kb_type='deposition'）不参与检索。
     """
-    vec = type_coerce(query_embedding, Vector(1024))
-    similarity_expr = 1.0 - func.cosine_distance(KbChunk.embedding, vec)
+    from app.models.insight import KbInsight
 
-    filters = [
+    vec = type_coerce(query_embedding, Vector(1024))
+    similarity_expr_chunk = 1.0 - func.cosine_distance(KbChunk.embedding, vec)
+    similarity_expr_insight = 1.0 - func.cosine_distance(KbInsight.embedding, vec)
+
+    # chunk 查询
+    chunk_filters = [
         KbDocument.status == DOC_STATUS_COMPLETED,
         func.cosine_distance(KbChunk.embedding, vec) <= 1.0 - thresh,
     ]
     if kb_id > 0:
-        filters.append(KbDocument.kb_id == kb_id)
+        chunk_filters.append(KbDocument.kb_id == kb_id)
 
-    stmt = (
+    chunk_stmt = (
         select(
             KbChunk.id.label("chunk_id"),
             KbDocument.doc_name,
             KbChunk.content,
-            similarity_expr.label("similarity"),
+            similarity_expr_chunk.label("similarity"),
             KbChunk.page,
+            func.coalesce(KbChunk.hit_count, 0).label("hit_count"),
+            sa.literal("chunk").label("result_type"),
         )
         .join(KbDocument, KbChunk.document_id == KbDocument.id)
-        .where(*filters)
-        .order_by(similarity_expr.desc())
+        .where(*chunk_filters)
+    )
+
+    # insight 查询（仅 approved）
+    insight_filters = [
+        KbInsight.status == "approved",
+        KbInsight.embedding.isnot(None),
+        func.cosine_distance(KbInsight.embedding, vec) <= 1.0 - thresh,
+    ]
+    if kb_id > 0:
+        insight_filters.append(KbInsight.kb_id == kb_id)
+
+    insight_stmt = (
+        select(
+            KbInsight.id.label("chunk_id"),
+            KbInsight.title.label("doc_name"),
+            KbInsight.content,
+            similarity_expr_insight.label("similarity"),
+            sa.literal(None).label("page"),
+            sa.literal(0).label("hit_count"),
+            sa.literal("insight").label("result_type"),
+        )
+        .where(*insight_filters)
+    )
+
+    union_stmt = (
+        chunk_stmt.union_all(insight_stmt)
+        .order_by(sa.desc("similarity"))
         .limit(k)
     )
 
-    rows = (await db.execute(stmt)).all()
+    rows = (await db.execute(union_stmt)).all()
     log_event("retrieval_completed", kb_id=kb_id, top_k=k, threshold=round(thresh, 2), hits=len(rows))
 
     return [
@@ -85,6 +119,7 @@ async def _pgvector_search(
             content=row.content,
             similarity=round(row.similarity, 4),
             page=row.page,
+            result_type=row.result_type,
         )
         for row in rows
     ]

@@ -12,6 +12,8 @@ async def rerank(
     question: str,
     chunks: list[dict],  # [{"content": "...", ...}, ...]
     top_k: int = 5,
+    base_url: str = "",
+    api_key: str = "",
 ) -> list[dict]:
     """调用 Reranker API 对候选片段精排，返回 top_k 个最相关的结果。
 
@@ -22,16 +24,12 @@ async def rerank(
         return chunks
 
     docs = [c["content"] for c in chunks]
-    # 优先走 settings 的 Embedding API，因为 Reranker 通常和 Embedding 同一个服务商
-    base_url = (settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL).rstrip("/")
-    api_key = settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
+    # 优先用传入配置，回退到 settings 环境变量
+    base_url = (base_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL).rstrip("/")
+    api_key = api_key or settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
 
-    # 构造 rerank API URL（硅基流动 / Jina / Cohere 等兼容格式）
-    if "siliconflow" in base_url:
-        url = f"{base_url}/v1/rerank"
-    else:
-        # 尝试通用 rerank 端点
-        url = f"{base_url}/v1/rerank"
+    # base_url 已含 /v1，直接拼 /rerank 即可
+    url = f"{base_url}/rerank"
 
     headers = {"Content-Type": "application/json"}
     if api_key:

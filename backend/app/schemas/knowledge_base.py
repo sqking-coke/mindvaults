@@ -5,12 +5,12 @@ from pydantic import BaseModel, Field
 
 
 class KbCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255, description="知识库名称")
+    name: str = Field(..., min_length=1, max_length=20, description="知识库名称，最多 20 字")
     description: str = Field(default="", description="描述")
 
 
 class KbUpdateRequest(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=255)
+    name: str | None = Field(None, min_length=1, max_length=20)
     description: str | None = None
 
 

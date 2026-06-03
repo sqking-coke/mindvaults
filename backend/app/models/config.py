@@ -1,7 +1,8 @@
 """KB 级别 RAG 参数配置（每个 KB 可选覆写，空则走系统默认）。"""
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import BigInteger, Integer, Float, DateTime, ForeignKey, func
+from sqlalchemy import BigInteger, Integer, Float, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models import Base
@@ -21,6 +22,20 @@ class KbConfig(Base):
     top_k: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     similarity_threshold: Mapped[float] = mapped_column(Float, default=0.35, nullable=False)
     embedding_dim: Mapped[int] = mapped_column(Integer, default=1024, nullable=False)
+
+    # LLM 配置（迁移 0003 添加）
+    llm_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    llm_base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    llm_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    llm_api_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    llm_temperature: Mapped[float] = mapped_column(Float, default=0.3, nullable=False)
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Embedding 配置（迁移 0009 添加）
+    embedding_provider: Mapped[Optional[str]] = mapped_column(String(50), default="same_as_llm")
+    embedding_base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_api_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

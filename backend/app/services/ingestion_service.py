@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import KbChunk
@@ -106,12 +106,23 @@ async def ingest_document(
 
         await db.flush()
 
-        # 5. 更新文档状态：完成
-        doc.chunk_count = len(chunks_with_pages)
+        # 5. 从数据库统计实际切片数，更新文档状态为完成
+        actual_count = (await db.execute(
+            select(func.count()).select_from(KbChunk).where(KbChunk.document_id == doc_id)
+        )).scalar_one()
+        logger.info(
+            f"ingestion_chunk_count doc_id={doc_id} memory={len(chunks_with_pages)} db={actual_count}"
+        )
+        if actual_count == 0:
+            logger.error(
+                f"ingestion_chunk_count_zero doc_id={doc_id} memory={len(chunks_with_pages)} "
+                f"this means flush didn't persist chunks — will retry on next reindex"
+            )
+        doc.chunk_count = actual_count
         doc.status = DOC_STATUS_COMPLETED
-        doc.status_detail = {"phase": "done", "chunks": len(chunks_with_pages), "finished_at": datetime.now(timezone.utc).isoformat()}
+        doc.status_detail = {"phase": "done", "chunks": actual_count, "finished_at": datetime.now(timezone.utc).isoformat()}
         await db.commit()
-        log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=len(chunks_with_pages))
+        log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=actual_count)
 
         # 异步更新质心向量（KB 智能路由 Layer 1 依赖）
         try:

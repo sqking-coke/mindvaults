@@ -23,21 +23,23 @@ import {
   Sliders,
   MoreHorizontal,
   Pin,
-  PinOff
+  PinOff,
+  Sparkles
 } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { 
-    conversations, 
-    activeConversationId, 
-    setActiveConversationId, 
-    addConversation, 
-    deleteConversation, 
+  const {
+    conversations,
+    activeConversationId,
+    setActiveConversationId,
+    addConversation,
+    deleteConversation,
     renameConversation,
     isGenerating,
     systemConfig,
+    setActiveKbId,
   } = usemindvaults();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -130,7 +132,8 @@ export default function Sidebar() {
   const isChatActive = pathname.startsWith("/chat");
   const isOpsActive = pathname.startsWith("/kb/ops");
   const isStatsActive = pathname.startsWith("/kb/stats");
-  const isKbActive = pathname === "/kb" || (pathname.startsWith("/kb") && !isOpsActive && !isStatsActive);
+  const isManageActive = pathname.startsWith("/kb/manage");
+  const isKbActive = pathname === "/kb" || (pathname.startsWith("/kb") && !isOpsActive && !isStatsActive && !isManageActive);
 
   return (
     <>
@@ -221,7 +224,7 @@ export default function Sidebar() {
         </Link>
         <Link
           href="/kb"
-          onClick={() => setMobileOpen(false)}
+          onClick={() => { setMobileOpen(false); setActiveKbId(null); }}
           className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
             transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 ${
             isKbActive
@@ -257,6 +260,19 @@ export default function Sidebar() {
         >
           <BarChart3 className="h-5 w-5 shrink-0" />
           {!isCollapsed && <span>问答统计 (Stats)</span>}
+        </Link>
+        <Link
+          href="/kb/manage"
+          onClick={() => setMobileOpen(false)}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+            transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 ${
+            isManageActive
+              ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/20"
+              : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
+          }`}
+        >
+          <Sparkles className="h-5 w-5 shrink-0" />
+          {!isCollapsed && <span>数据治理 (Gov)</span>}
         </Link>
       </div>
 
@@ -422,24 +438,28 @@ export default function Sidebar() {
       )}
 
       {/* Conversation List Placeholder if KB/Ops/Stats is active */}
-      {(isKbActive || isOpsActive || isStatsActive) && !isCollapsed && (
+      {(isKbActive || isOpsActive || isStatsActive || isManageActive) && !isCollapsed && (
         <div className="flex-1 flex flex-col justify-center items-center px-4 py-8 border-t border-slate-800/60 text-center select-none text-slate-600">
           {isOpsActive ? (
             <Wrench className="h-10 w-10 text-slate-700 mb-3 animate-pulse-subtle" />
           ) : isStatsActive ? (
             <BarChart3 className="h-10 w-10 text-slate-700 mb-3 animate-pulse-subtle" />
+          ) : isManageActive ? (
+            <Sparkles className="h-10 w-10 text-slate-700 mb-3 animate-pulse-subtle" />
           ) : (
             <Database className="h-10 w-10 text-slate-700 mb-3 animate-pulse-subtle" />
           )}
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
-            {isOpsActive ? "运维管理中" : isStatsActive ? "问答统计中" : "知识管理中"}
+            {isOpsActive ? "运维管理中" : isStatsActive ? "问答统计中" : isManageActive ? "数据治理中" : "知识管理中"}
           </p>
           <p className="text-[11px] leading-relaxed max-w-[180px]">
-            {isOpsActive 
-              ? "对知识库分流切片及文档检索状态进行高级维护。" 
-              : isStatsActive 
-                ? "多维度分析用户提问倾向，持续优化检索。" 
-                : "在右侧视图中切换或建立新的本地知识库文件。"}
+            {isOpsActive
+              ? "对知识库分流切片及文档检索状态进行高级维护。"
+              : isStatsActive
+                ? "多维度分析用户提问倾向，持续优化检索。"
+                : isManageActive
+                  ? "审核对话提炼知识点，管理概念关联，监控知识库健康度。"
+                  : "在右侧视图中切换或建立新的本地知识库文件。"}
           </p>
         </div>
       )}

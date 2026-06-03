@@ -8,6 +8,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v0.5.0",
+    date: "2026-06-03",
+    title: "对话知识沉淀 #16 实现 & 基座加固",
+    description:
+      "实现对话知识沉淀完整闭环：LLM 定时/手动提炼 QA 对话为知识点（非流式，temperature=0）、向量相似度去重（阈值 0.92）、用户审核（通过/拒绝/删除+目标 KB 分配）、审核通过后自动落 kb_chunk 参与联合检索。新增 kb_insights 表、沉积服务 insight_service、APScheduler 后台定时调度器（每日凌晨触发）。统一系统知识库（默认系统库，id=1，不可删除，启动自愈）。数据治理页面新增知识审核、概念管理、健康中心、监控看板四个模块，审核卡片展示置信度、标签、目标 KB 选择器。系统设置新增对话知识沉淀配置（启用开关、定时时间、去重阈值、自动通过阈值）。Step 0/1 遗留修复：KbConfig ORM 补全 LLM/Embedding 字段、vault.py 替换裸 HTTPException、apiClient 提取 X-Trace-Id、main.py 过期迁移逻辑清理、chat_service 拆出 session_service。修复 reranker URL 拼接 bug（/v1/v1/rerank → /v1/rerank）、reindex 竞态条件（先 commit 再 schedule）、前端删除对话不走后端、引用编号 [0] → [1] 对齐 LLM 输出。CLAUDE.md 精简重构，新增 Import 顶层集中、写前先搜索、lifespan 只做自愈不做迁移等硬约束。",
+    tags: ["feature", "fix", "refactor", "docs"],
+  },
+  {
     version: "v0.4.0",
     date: "2026-06-02",
     title: "KB 智能路由方案 & 数据治理蓝图",

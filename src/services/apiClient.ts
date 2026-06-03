@@ -4,9 +4,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 
 export class ApiError extends Error {
   code: number;
-  constructor(code: number, message: string) {
+  traceId: string;
+  constructor(code: number, message: string, traceId = "") {
     super(message);
     this.code = code;
+    this.traceId = traceId;
     this.name = "ApiError";
   }
 }
@@ -15,12 +17,14 @@ interface ApiEnvelope<T = unknown> {
   code: number;
   data: T;
   message?: string;
+  trace_id?: string;
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
   const json: ApiEnvelope<T> = await res.json();
   if (!res.ok || json.code !== 0) {
-    throw new ApiError(json.code || res.status, json.message || `HTTP ${res.status}`);
+    const traceId = res.headers.get("X-Trace-Id") || json.trace_id || "";
+    throw new ApiError(json.code || res.status, json.message || `HTTP ${res.status}`, traceId);
   }
   return json.data;
 }
