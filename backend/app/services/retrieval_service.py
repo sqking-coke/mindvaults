@@ -5,9 +5,11 @@ from pgvector.sqlalchemy import Vector
 
 from app.config import settings
 from app.core.redis import get_redis
+from app.core.exceptions import AppException
 from app.models.chunk import KbChunk
 from app.models.document import KbDocument, DOC_STATUS_COMPLETED
 from app.models.config import KbConfig
+from app.models.knowledge_base import KnowledgeBase
 from app.schemas.chat import RefChunk
 from app.utils.logger import log_event
 from app.services.cache_service import CacheService
@@ -19,15 +21,15 @@ async def get_config(db: AsyncSession) -> KbConfig:
 
 
 async def get_config_by_kb(db: AsyncSession, kb_id: int) -> KbConfig:
-    """获取指定 KB 的配置；KB 和配置都不存在则自动创建。"""
-    from app.models.knowledge_base import KnowledgeBase
+    """获取指定 KB 的配置；配置不存在则自动创建默认行。
 
-    # 确保 KB 存在
-    kb = (await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))).scalar_one_or_none()
+    注意：KB 本身必须已存在（由 kb_service.create_kb 创建），
+    此函数不会自动创建 KB，只负责配置的懒初始化。
+    """
+    # 验证 KB 存在
+    kb = await db.get(KnowledgeBase, kb_id)
     if kb is None:
-        kb = KnowledgeBase(id=kb_id, name=f"知识库 {kb_id}", description="自动创建")
-        db.add(kb)
-        await db.flush()
+        raise AppException(code=6001, message=f"知识库不存在: {kb_id}", status_code=404)
 
     row = (await db.execute(select(KbConfig).where(KbConfig.kb_id == kb_id))).scalar_one_or_none()
     if row is None:

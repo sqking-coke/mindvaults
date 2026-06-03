@@ -9,7 +9,7 @@ from app.services.document_service import (
     get_document,
     list_documents,
     update_document,
-    soft_delete_document,
+    hard_delete_document,
     _validate_file,
 )
 from app.core.exceptions import DocFormatUnsupportedError
@@ -136,7 +136,7 @@ class TestSoftDeleteDocument:
         doc = await _make_document(db_session)
         await db_session.commit()
 
-        await soft_delete_document(db_session, doc.id)
+        await hard_delete_document(db_session, doc.id)
         # After soft delete, get should raise
         with pytest.raises(DocNotFoundError):
             await get_document(db_session, doc.id)
@@ -144,4 +144,4 @@ class TestSoftDeleteDocument:
     @pytest.mark.asyncio
     async def test_soft_delete_nonexistent_raises(self, db_session: AsyncSession):
         with pytest.raises(DocNotFoundError):
-            await soft_delete_document(db_session, 99999)
+            await hard_delete_document(db_session, 99999)

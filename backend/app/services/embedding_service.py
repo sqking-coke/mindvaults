@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -6,6 +7,56 @@ import httpx
 
 from app.config import settings
 from app.core.exceptions import EmbeddingUnavailableError, LLMConfigRequiredError
+
+
+@dataclass
+class EmbeddingConfig:
+    """解析后的 Embedding 配置（从 system_config + env 合并）。"""
+    api_key: str | None
+    base_url: str
+    provider: str  # "ollama" | "openai"
+    model: str
+
+
+async def resolve_embedding_config(
+    sys_cfg,  # SystemConfig | None
+    api_key_override: str | None = None,
+) -> EmbeddingConfig:
+    """从 SystemConfig + 环境变量解析 Embedding 配置。
+
+    优先使用 sys_cfg（DB 动态配置），NULL 字段回退到环境变量。
+    这是 chat_service 和 ingestion_service 的单一真相来源。
+    """
+    # provider
+    emb_provider = sys_cfg.embedding_provider if sys_cfg and sys_cfg.embedding_provider else "same_as_llm"
+    sys_llm_key = sys_cfg.llm_api_key if sys_cfg else None
+    sys_llm_url = sys_cfg.llm_base_url if sys_cfg else None
+    sys_emb_key = sys_cfg.embedding_api_key if sys_cfg else None
+    sys_emb_url = sys_cfg.embedding_base_url if sys_cfg else None
+    sys_llm_model = sys_cfg.llm_model if sys_cfg else None
+
+    if emb_provider == "same_as_llm":
+        api_key = api_key_override or settings.EMBEDDING_API_KEY or sys_llm_key
+        base_url = settings.EMBEDDING_BASE_URL or sys_llm_url or settings.LLM_BASE_URL or "http://localhost:11434"
+        provider_for_call = "openai"
+    elif emb_provider == "ollama":
+        api_key = None
+        base_url = sys_emb_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL or "http://localhost:11434"
+        provider_for_call = "ollama"
+    else:
+        # openai / siliconflow / deepseek 等均走 OpenAI 兼容 API
+        api_key = api_key_override or sys_emb_key or settings.EMBEDDING_API_KEY
+        base_url = sys_emb_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL or "http://localhost:11434"
+        provider_for_call = "openai"
+
+    model = settings.EMBEDDING_MODEL
+
+    return EmbeddingConfig(
+        api_key=api_key,
+        base_url=base_url,
+        provider=provider_for_call,
+        model=model,
+    )
 
 
 async def embed_text(

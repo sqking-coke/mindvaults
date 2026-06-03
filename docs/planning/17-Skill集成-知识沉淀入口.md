@@ -314,6 +314,19 @@ POST /api/v1/kb/external/push
 
 ---
 
+## 监控埋点
+
+> 详细设计见 [[21-监控告警系统]]
+
+| event | status | 触发条件 |
+|-------|--------|---------|
+| `external_push_received` | success | 收到外部推送 |
+| `external_push_deduped` | warning | 推送去重跳过 |
+| `external_push_failed` | failed | 推送处理失败 |
+| `external_api_key_invalid` | failed | API Key 无效 |
+
+---
+
 ## 实施计划
 
 | 阶段 | 内容 | 涉及 |

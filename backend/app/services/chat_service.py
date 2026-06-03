@@ -33,7 +33,7 @@ INTENT_PATTERNS = [
     (["你好", "谢谢", "再见", "帮助", "你是谁"], "chitchat"),
 ]
 
-RAG_SYSTEM_PROMPT = (
+DEFAULT_SYSTEM_PROMPT = (
     "你是一个基于本地知识库的智能问答助手。"
     "请严格根据以下提供的参考文档内容回答用户问题。"
     "如果参考文档中没有相关信息，请明确告知用户，不要编造内容。"
@@ -102,6 +102,7 @@ async def chat_stream(
     # — 0. 提前获取配置 —
     from app.models.system_config import SystemConfig
     from app.services.retrieval_service import get_config
+    from app.services.embedding_service import resolve_embedding_config
 
     sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
     if sys_cfg is None:
@@ -116,20 +117,7 @@ async def chat_stream(
     base_url = sys_cfg.llm_base_url if sys_cfg.llm_base_url is not None else settings.LLM_BASE_URL
     threshold = kb_cfg.similarity_threshold if kb_cfg.similarity_threshold is not None else 0.5
 
-    emb_provider = sys_cfg.embedding_provider if sys_cfg.embedding_provider else "same_as_llm"
-    if emb_provider == "same_as_llm":
-        emb_api_key = settings.EMBEDDING_API_KEY or api_key
-        emb_base_url = settings.EMBEDDING_BASE_URL or base_url
-        emb_provider_for_call = "openai"
-    elif emb_provider == "ollama":
-        emb_api_key = None
-        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
-        emb_provider_for_call = "ollama"
-    else:
-        # openai / siliconflow / deepseek 等均走 OpenAI 兼容 API
-        emb_api_key = sys_cfg.embedding_api_key or settings.EMBEDDING_API_KEY
-        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
-        emb_provider_for_call = "openai"
+    emb_cfg = await resolve_embedding_config(sys_cfg)
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
 
     logger.info(
@@ -173,7 +161,7 @@ async def chat_stream(
     yield ("progress", json.dumps(step))
 
     try:
-        query_embedding = await embed_text(req.question, api_key=emb_api_key, base_url=emb_base_url, provider=emb_provider_for_call)
+        query_embedding = await embed_text(req.question, api_key=emb_cfg.api_key, base_url=emb_cfg.base_url, provider=emb_cfg.provider)
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
@@ -279,7 +267,8 @@ async def chat_stream(
 
     full_answer = ""
     try:
-        async for token in generate_stream(RAG_SYSTEM_PROMPT, user_prompt, provider=provider, base_url=base_url, model=model, api_key=api_key):
+        system_prompt = sys_cfg.system_prompt.strip() if sys_cfg and sys_cfg.system_prompt else DEFAULT_SYSTEM_PROMPT
+        async for token in generate_stream(system_prompt, user_prompt, provider=provider, base_url=base_url, model=model, api_key=api_key):
             full_answer += token
             yield ("token", json.dumps({"content": token}))
     except Exception as exc:
@@ -427,10 +416,7 @@ async def delete_session(db: AsyncSession, session_id: str) -> None:
     if session is None:
         raise SessionNotFoundError(f"会话不存在: {session_id}")
 
-    await db.execute(
-        delete(KbQaRecord).where(KbQaRecord.session_id == session.id)
-    )
-    # 先记数据，再删
+    # 先统计 QA 记录数（删前），再删除 QA + 会话
     qa_count = (
         await db.execute(
             select(func.count()).select_from(KbQaRecord).where(KbQaRecord.session_id == session.id)

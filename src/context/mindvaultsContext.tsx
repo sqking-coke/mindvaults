@@ -13,7 +13,7 @@ import type {
   VaultImportResponse,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
-import { formatTime } from "@/utils/date";
+import { formatTime, formatDateTime } from "@/utils/date";
 import {
   getDefaultKnowledgeBase,
   fetchDocuments,
@@ -567,7 +567,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (files.length === 0) return;
 
       // add optimistic entries
-      const now = new Date().toISOString().replace("T", " ").substring(0, 16);
+      const now = formatDateTime(new Date().toISOString());
       const tempDocs: DocumentRecord[] = files.map((f, i) => ({
         id: `doc-temp-${Date.now()}-${i}`,
         kbId,

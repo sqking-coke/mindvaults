@@ -13,7 +13,9 @@ from app.core.database import engine
 from app.core.redis import close_redis
 from app.core.exceptions import (
     AppException,
+    ValidationException,
     app_exception_handler,
+    validation_exception_handler,
     unhandled_exception_handler,
 )
 from app.core.middleware import limiter, request_log_middleware
@@ -103,6 +105,7 @@ def create_app() -> FastAPI:
 
     # 全局异常处理器
     app.add_exception_handler(AppException, app_exception_handler)
+    app.add_exception_handler(ValidationException, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
