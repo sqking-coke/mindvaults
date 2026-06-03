@@ -28,6 +28,11 @@ class SystemConfig(Base):
 
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # KB 智能路由阈值
+    route_centroid_threshold: Mapped[float] = mapped_column(Float, default=0.40, nullable=False)
+    route_centroid_gap: Mapped[float] = mapped_column(Float, default=0.08, nullable=False)
+    route_llm_confidence: Mapped[float] = mapped_column(Float, default=0.60, nullable=False)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

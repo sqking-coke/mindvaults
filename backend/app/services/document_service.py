@@ -216,6 +216,7 @@ async def hard_delete_document(db: AsyncSession, doc_id: int) -> None:
 
     file_path = row.file_path
     doc_name = row.doc_name
+    kb_id = row.kb_id
 
     # 先删切片，再删文档（chunk FK 有 CASCADE，但显式执行更清晰）
     await db.execute(delete(KbChunk).where(KbChunk.document_id == doc_id))
@@ -227,6 +228,13 @@ async def hard_delete_document(db: AsyncSession, doc_id: int) -> None:
         p = Path(file_path)
         if p.exists():
             p.unlink()
+    except Exception:
+        pass
+
+    # 更新 KB 质心向量（文档数减少）
+    try:
+        from app.services.retrieval_service import update_centroid
+        await update_centroid(db, kb_id)
     except Exception:
         pass
 

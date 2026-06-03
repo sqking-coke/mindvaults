@@ -127,3 +127,103 @@ async def retrieve_chunks(
             logger.warning("retrieval_cache_write_failed")
 
     return chunks
+
+
+# ═══════════════════════════════════════════════════════════
+# 质心计算（KB 智能路由 Layer 1）
+# ═══════════════════════════════════════════════════════════
+
+_MAX_CENTROID_SAMPLE = 1000
+
+
+async def compute_centroid(db: AsyncSession, kb_id: int) -> list[float] | None:
+    """为指定 KB 计算质心向量（采样模式）。
+
+    从该 KB 所属的活跃文档中随机采样最多 1000 个 chunk 的 embedding，
+    计算均值向量作为该 KB 的"语义中心"。
+
+    返回 1024 维向量或 None（chunk_count=0 时）。
+    """
+    from sqlalchemy import text
+
+    # 子查询获取该 KB 的 chunk 总数
+    count_stmt = (
+        select(func.count(KbChunk.id))
+        .join(KbDocument, KbChunk.document_id == KbDocument.id)
+        .where(
+            KbDocument.kb_id == kb_id,
+            KbDocument.deleted_at.is_(None),
+            KbDocument.status == DOC_STATUS_COMPLETED,
+        )
+    )
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    if total == 0:
+        return None
+
+    # 采样策略：≤ 1000 全量，> 1000 随机采样
+    if total <= _MAX_CENTROID_SAMPLE:
+        rows = (await db.execute(
+            select(KbChunk.embedding)
+            .join(KbDocument, KbChunk.document_id == KbDocument.id)
+            .where(
+                KbDocument.kb_id == kb_id,
+                KbDocument.deleted_at.is_(None),
+                KbDocument.status == DOC_STATUS_COMPLETED,
+            )
+        )).all()
+    else:
+        # 随机采样（TABLESAMPLE 不可靠，用 ORDER BY RANDOM）
+        rows = (await db.execute(
+            select(KbChunk.embedding)
+            .join(KbDocument, KbChunk.document_id == KbDocument.id)
+            .where(
+                KbDocument.kb_id == kb_id,
+                KbDocument.deleted_at.is_(None),
+                KbDocument.status == DOC_STATUS_COMPLETED,
+            )
+            .order_by(func.random())
+            .limit(_MAX_CENTROID_SAMPLE)
+        )).all()
+
+    if not rows:
+        return None
+
+    # 计算均值向量
+    dim = len(rows[0][0])
+    centroid = [0.0] * dim
+    for (emb,) in rows:
+        for i in range(dim):
+            centroid[i] += emb[i]
+    n = len(rows)
+    for i in range(dim):
+        centroid[i] /= n
+
+    return centroid
+
+
+async def update_centroid(db: AsyncSession, kb_id: int) -> None:
+    """更新 KB 的质心向量字段。
+
+    chunk_count=0 → 质心设置为 NULL（Layer 1 自动跳过该 KB）。
+    计算异常 → 保持旧值，仅记录 ERROR 日志，不影响主流程。
+    """
+    from app.models.knowledge_base import KnowledgeBase
+
+    try:
+        centroid = await compute_centroid(db, kb_id)
+        kb = await db.get(KnowledgeBase, kb_id)
+        if kb is None:
+            logger.warning(f"update_centroid_kb_not_found kb_id={kb_id}")
+            return
+
+        from sqlalchemy import func as sqla_func
+        kb.centroid_embedding = centroid
+        kb.centroid_updated_at = sqla_func.now()
+        await db.commit()
+
+        chunk_count = "null" if centroid is None else "updated"
+        logger.info(f"centroid_updated kb_id={kb_id} status={chunk_count}")
+    except Exception:
+        logger.error(f"centroid_update_failed kb_id={kb_id}")
+        await db.rollback()

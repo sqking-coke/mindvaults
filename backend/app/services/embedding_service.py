@@ -148,11 +148,12 @@ async def _embed_openai(text: str, api_key: str | None = None, base_url: str | N
 
     active_api_key = api_key or settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
     if not active_api_key:
-        raise LLMConfigRequiredError("请先配置 Embedding API Key，否则无法进行文档向量化")
+        raise LLMConfigRequiredError("Embedding API Key 未配置，请在设置页面添加")
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {active_api_key}"}
+    active_model = model or settings.EMBEDDING_MODEL
 
     payload = {
-        "model": model or settings.EMBEDDING_MODEL,
+        "model": active_model,
         "input": text,
     }
 
@@ -168,9 +169,9 @@ async def _embed_openai(text: str, api_key: str | None = None, base_url: str | N
     except (httpx.HTTPError, KeyError, IndexError) as exc:
         status = getattr(exc, "response", None) and getattr(exc.response, "status_code", None)
         if status in (401, 403):
-            raise LLMConfigRequiredError(f"Embedding API Key 无效或未配置，请检查系统设置: {exc}")
+            raise LLMConfigRequiredError("Embedding API Key 无效，请检查设置")
         logger.error(f"Embedding (openai) 调用失败: {exc}")
-        raise EmbeddingUnavailableError(f"Embedding 模型不可用: {exc}")
+        raise EmbeddingUnavailableError(f"Embedding 调用失败: {exc}")
 
 
 async def _embed_openai_batch(texts: list[str], api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> list[list[float]]:
@@ -181,10 +182,11 @@ async def _embed_openai_batch(texts: list[str], api_key: str | None = None, base
 
     active_api_key = api_key or settings.EMBEDDING_API_KEY or settings.LLM_API_KEY
     if not active_api_key:
-        raise LLMConfigRequiredError("请先配置 Embedding API Key，否则无法进行文档向量化")
+        raise LLMConfigRequiredError("Embedding API Key 未配置，请在设置页面添加")
+    active_model = model or settings.EMBEDDING_MODEL
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {active_api_key}"}
 
-    payload = {"model": model or settings.EMBEDDING_MODEL, "input": texts}
+    payload = {"model": active_model, "input": texts}
 
     try:
         async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
@@ -200,6 +202,6 @@ async def _embed_openai_batch(texts: list[str], api_key: str | None = None, base
     except (httpx.HTTPError, KeyError, IndexError) as exc:
         status = getattr(exc, "response", None) and getattr(exc.response, "status_code", None)
         if status in (401, 403):
-            raise LLMConfigRequiredError(f"Embedding API Key 无效或未配置，请检查系统设置: {exc}")
+            raise LLMConfigRequiredError("Embedding API Key 无效，请检查设置")
         logger.error(f"Embedding (openai) batch 调用失败: {exc}")
-        raise EmbeddingUnavailableError(f"Embedding batch 不可用: {exc}")
+        raise EmbeddingUnavailableError(f"Embedding batch 调用失败: {exc}")

@@ -101,8 +101,9 @@ async def chat_stream(
 
     # — 0. 提前获取配置 —
     from app.models.system_config import SystemConfig
-    from app.services.retrieval_service import get_config
+    from app.services.retrieval_service import get_config_by_kb
     from app.services.embedding_service import resolve_embedding_config
+    from app.services.kb_router import resolve_kb
 
     sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
     if sys_cfg is None:
@@ -110,12 +111,10 @@ async def chat_stream(
         db.add(sys_cfg)
         await db.flush()
 
-    kb_cfg = await get_config(db)
     provider = sys_cfg.llm_provider if sys_cfg.llm_provider is not None else settings.LLM_PROVIDER
     model = sys_cfg.llm_model if sys_cfg.llm_model is not None else settings.LLM_MODEL
     api_key = sys_cfg.llm_api_key if sys_cfg.llm_api_key is not None else settings.LLM_API_KEY
     base_url = sys_cfg.llm_base_url if sys_cfg.llm_base_url is not None else settings.LLM_BASE_URL
-    threshold = kb_cfg.similarity_threshold if kb_cfg.similarity_threshold is not None else 0.5
 
     emb_cfg = await resolve_embedding_config(sys_cfg)
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
@@ -138,24 +137,11 @@ async def chat_stream(
         yield ("error", json.dumps({"code": 9001, "message": "数据库查询失败，请稍后重试"}))
         return
 
-    # 确定 kb_id：请求 > 会话 > 默认 1（0 表示全库检索）
-    kb_id = req.kb_id if req.kb_id is not None else (session.kb_id if session else 1)
-
-    if session is None:
-        session = KbSession(
-            session_id=req.session_id,
-            kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
-            title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
-        )
-        db.add(session)
-        await db.flush()
-        await db.commit()  # 立即提交会话创建，释放锁，后续 LLM 失败不影响会话存在
-
+    # — 2. 意图分类 + Embedding —
     step = {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
 
-    # — 2. Embedding —
     step = {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)}
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
@@ -165,6 +151,10 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
+        if session is None:
+            await db.rollback()
+            yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
+            return
         record = KbQaRecord(
             session_id=session.id,
             question=req.question,
@@ -178,9 +168,75 @@ async def chat_stream(
         yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
         return
 
-    # — 3. 检索（粗排 top_k*2，后续 Reranker 精排）—
-    cfg = await get_config(db)
-    k = cfg.top_k if cfg.top_k is not None else 5
+    # — 3. KB 智能路由 —
+    resolved_kb_id, routing_event = await resolve_kb(
+        db, req.question, query_embedding, req.kb_id,
+        sys_cfg=sys_cfg, provider=provider, base_url=base_url,
+        model=model, api_key=api_key,
+    )
+
+    # Layer 3 未命中 → 返回引导消息给前端
+    if routing_event and routing_event.get("method") == "fallback":
+        if routing_event.get("no_candidates"):
+            # 所有 KB 都没有文档 → 提示用户上传
+            fallback_msg = (
+                "📄 当前没有任何知识库包含文档。"
+                "请先在 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），"
+                "上传完成后即可开始智能问答。"
+            )
+        else:
+            candidates = routing_event.get("candidates", [])
+            kb_names = "、".join(f"「{c['kb_name']}」" for c in candidates[:5])
+            fallback_msg = (
+                f"🤔 我不太确定该用哪个知识库来回答这个问题。\n\n"
+                f"你可以：\n"
+                + "".join(f"  • 指定 {c['kb_name']}\n" for c in candidates[:5])
+                + f"  • 搜索全部知识库\n"
+                f"  • 换个方式描述问题\n\n"
+                f"可用知识库：{kb_names}"
+            )
+        await _push_thinking(req.session_id, round_key, routing_event)
+        yield ("progress", json.dumps(routing_event))
+        yield ("error", json.dumps({"code": 4001, "message": fallback_msg, "route_fallback": True}))
+        # 如果已创建 session，确保提交
+        if session is None:
+            # 尚未创建 session，回滚
+            return
+        record = KbQaRecord(
+            session_id=session.id,
+            question=req.question,
+            answer=fallback_msg,
+            ref_chunks=[],
+            model_name=settings.LLM_MODEL,
+            round_key=round_key,
+        )
+        db.add(record)
+        await db.commit()
+        return
+
+    # 路由命中 → 输出 routing thinking 事件
+    if routing_event:
+        await _push_thinking(req.session_id, round_key, routing_event)
+        yield ("progress", json.dumps(routing_event))
+
+    # 最终 kb_id（路由命中值 或 用户指定值 或 0=全库）
+    kb_id = resolved_kb_id if resolved_kb_id is not None else 1
+
+    # — 4. 会话管理（延后到路由完成，使用正确的 kb_id）—
+    if session is None:
+        session = KbSession(
+            session_id=req.session_id,
+            kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
+            title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
+        )
+        db.add(session)
+        await db.flush()
+        await db.commit()
+
+    # — 5. 检索（粗排 top_k*2，后续 Reranker 精排）—
+    kb_cfg = await get_config_by_kb(db, max(kb_id, 1))
+    k = kb_cfg.top_k if kb_cfg and kb_cfg.top_k is not None else 5
+    threshold = kb_cfg.similarity_threshold if kb_cfg and kb_cfg.similarity_threshold is not None else 0.5
     step = {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)}
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
@@ -342,7 +398,8 @@ async def get_chat_history(
     ).scalar_one_or_none()
 
     if session is None:
-        raise SessionNotFoundError(f"会话不存在: {session_id}")
+        # 新对话尚未持久化到后端 → 返回空历史，不报 404
+        return ChatHistoryResponse(items=[], total=0, page=page, page_size=page_size)
 
     count_q = (
         select(func.count())

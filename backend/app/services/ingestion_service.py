@@ -113,6 +113,13 @@ async def ingest_document(
         await db.commit()
         log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=len(chunks_with_pages))
 
+        # 异步更新质心向量（KB 智能路由 Layer 1 依赖）
+        try:
+            from app.services.retrieval_service import update_centroid
+            await update_centroid(db, doc.kb_id)
+        except Exception:
+            logger.warning(f"centroid_update_after_ingestion_failed kb_id={doc.kb_id}")
+
     except Exception as exc:
         logger.error(f"doc_ingestion_failed doc_id={doc_id} error=\"{exc}\"")
         await db.rollback()

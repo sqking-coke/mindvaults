@@ -17,6 +17,11 @@ class SystemConfigResponse(BaseModel):
 
     system_prompt: Optional[str] = Field(None, description="系统自定义提示词模板")
 
+    # KB 智能路由阈值
+    route_centroid_threshold: float = Field(0.40, description="Layer 1 质心匹配阈值（余弦距离）")
+    route_centroid_gap: float = Field(0.08, description="Layer 1 前两名最小差距阈值")
+    route_llm_confidence: float = Field(0.60, description="Layer 2 LLM 路由置信度阈值")
+
     class Config:
         from_attributes = True
 
@@ -35,3 +40,8 @@ class SystemConfigRequest(BaseModel):
     embedding_api_key: Optional[str] = Field(None, max_length=255)
 
     system_prompt: Optional[str] = Field(None)
+
+    # KB 智能路由阈值
+    route_centroid_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
+    route_centroid_gap: Optional[float] = Field(None, ge=0.0, le=1.0)
+    route_llm_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)

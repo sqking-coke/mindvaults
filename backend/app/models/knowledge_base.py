@@ -3,6 +3,7 @@ from typing import Optional
 
 from sqlalchemy import BigInteger, String, Text, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 from app.models import Base
 
@@ -18,6 +19,14 @@ class KnowledgeBase(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # KB 智能路由：质心向量（Layer 1 匹配用）
+    centroid_embedding: Mapped[Optional[list[float]]] = mapped_column(
+        Vector(1024), nullable=True
+    )
+    centroid_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     config: Mapped["KbConfig"] = relationship(

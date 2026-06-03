@@ -107,11 +107,12 @@ export default function KnowledgeCard({ question, answer, citations, onClose }: 
           </div>
         </div>
 
-        {/* card preview */}
-        <div
-          ref={cardRef}
-          className={`${s.bg} rounded-2xl p-6 shadow-2xl border border-slate-200/50 overflow-hidden`}
-        >
+        {/* card preview — scrollable for long content */}
+        <div className="flex-1 min-h-0 overflow-y-auto rounded-2xl">
+          <div
+            ref={cardRef}
+            className={`${s.bg} rounded-2xl p-6 shadow-2xl border border-slate-200/50`}
+          >
           <div className="flex items-center gap-2 mb-4">
             <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-600 flex items-center justify-center">
               <Share2 className="h-4 w-4 text-white" />
@@ -148,6 +149,7 @@ export default function KnowledgeCard({ question, answer, citations, onClose }: 
               {new Date().toLocaleDateString("zh-CN")}
             </span>
           </div>
+        </div>
         </div>
       </div>
     </div>

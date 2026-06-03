@@ -19,6 +19,7 @@ export default function ChatPage() {
     updateSystemConfig,
     loadOllamaModels,
     configRequiredDialog,
+    configRequiredMessage,
     dismissConfigRequiredDialog,
   } = usemindvaults();
 
@@ -132,6 +133,7 @@ export default function ChatPage() {
       <ConfigRequiredDialog
         open={configRequiredDialog}
         onDismiss={dismissConfigRequiredDialog}
+        errorMessage={configRequiredMessage}
       />
     </>
   );

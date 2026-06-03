@@ -347,6 +347,9 @@ export interface SystemConfig {
   embedding_base_url: string;
   embedding_model: string;
   embedding_api_key: string;
+  route_centroid_threshold: number;
+  route_centroid_gap: number;
+  route_llm_confidence: number;
 }
 
 export interface SystemConfigRequest {
@@ -364,6 +367,9 @@ export interface SystemConfigRequest {
   embedding_base_url?: string;
   embedding_model?: string;
   embedding_api_key?: string;
+  route_centroid_threshold?: number;
+  route_centroid_gap?: number;
+  route_llm_confidence?: number;
 }
 
 // ==================== Obsidian Vault 导入 API 契约 ====================

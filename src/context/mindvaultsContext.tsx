@@ -78,6 +78,7 @@ interface mindvaultsContextType {
   toast: { message: string; type: "success" | "error" } | null;
   showToast: (message: string, type?: "success" | "error") => void;
   configRequiredDialog: boolean;
+  configRequiredMessage: string;
   dismissConfigRequiredDialog: () => void;
 }
 
@@ -107,6 +108,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // --- Config required dialog ---
   const [configRequiredDialog, setConfigRequiredDialog] = useState(false);
+  const [configRequiredMessage, setConfigRequiredMessage] = useState("");
   const dismissConfigRequiredDialog = useCallback(() => setConfigRequiredDialog(false), []);
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -161,22 +163,12 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         if (kbs.length > 0) {
           setKnowledgeBases(kbs);
-          // 恢复上次选中的 KB（localStorage），否则不自动选中
-          const savedKbId = localStorage.getItem("mv_active_kb_id");
-          if (savedKbId && kbs.some(k => String(k.id) === savedKbId)) {
-            setActiveKbId(savedKbId);
-          }
         } else {
-          const defaultKb = getDefaultKnowledgeBase();
-          setKnowledgeBases([defaultKb]);
-          setActiveKbId(String(defaultKb.id));
+          setKnowledgeBases([getDefaultKnowledgeBase()]);
         }
 
-        // 加载文档（优先用恢复的 KB，否则默认第一个）
-        const restoredKbId = localStorage.getItem("mv_active_kb_id");
-        const kbId = (restoredKbId && kbs.some(k => String(k.id) === restoredKbId))
-          ? Number(restoredKbId)
-          : (kbs.length > 0 ? kbs[0].id : 1);
+        // 加载文档（默认取第一个 KB，用于知识中心展示）
+        const kbId = kbs.length > 0 ? kbs[0].id : 1;
         const [docResult, sessions] = await Promise.all([
           fetchDocuments(1, 50, kbId),
           fetchSessions(),
@@ -196,10 +188,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           // 不自动选中历史对话，进入 /chat 默认展示新建对话欢迎页
         }
       } catch {
-        // backend unavailable — 用默认 KB 兜底
-        const defaultKb = getDefaultKnowledgeBase();
-        setKnowledgeBases([defaultKb]);
-        setActiveKbId(String(defaultKb.id));
+        // backend unavailable — 用默认 KB 兜底，不改变 activeKbId（保持自动模式）
+        setKnowledgeBases([getDefaultKnowledgeBase()]);
       } finally {
         if (!cancelled) setIsKbLoading(false);
       }
@@ -315,6 +305,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
     setConversations((prev) => [newConv, ...prev]);
     setActiveConversationId(id);
+    setActiveKbId(null);  // 新对话默认「自动」模式
     return id;
   }, []);
 
@@ -367,6 +358,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
         setConversations((prev) => [newConv, ...prev]);
         setActiveConversationId(sessionId);
+        setActiveKbId(null);  // 新对话默认「自动」模式
       }
 
       const timestamp = formatTime();
@@ -412,7 +404,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try {
           for await (const event of streamChat(
             "/api/v1/kb/chat",
-            { question: content, session_id: sessionId, kb_id: activeKbId && activeKbId !== "0" ? Number(activeKbId) : 0 },
+            { question: content, session_id: sessionId, kb_id: activeKbId === "0" ? 0 : (activeKbId ? Number(activeKbId) : undefined) },
             abortController.signal,
           )) {
             if (event.type === "progress") {
@@ -471,20 +463,26 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             } else if (event.type === "error") {
               const errorCode = (event.data as { code?: number }).code;
               const errorMessage = (event.data as { message?: string }).message || "未知错误";
+              const isRouteFallback = (event.data as { route_fallback?: boolean }).route_fallback;
 
               // 友好提示：根据错误码显示引导文案而非冷冰冰的错误
               let displayContent: string;
-              if (errorCode === 4001) {
+              if (isRouteFallback) {
+                // Layer 3 路由未命中 → 显示引导消息（含候选 KB）
+                displayContent = errorMessage;
+              } else if (errorCode === 4001) {
                 displayContent =
                   "📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。";
               } else if (errorCode === 5003) {
-                displayContent = "⚠️ 大模型 API Key 未配置，无法生成回答。\n\n请点击页面弹出的提示框前往系统设置页面配置 API Key。";
+                displayContent = `⚠️ ${errorMessage}\n\n请点击页面弹出的提示框前往系统设置页面检查 API Key 配置。`;
+                setConfigRequiredMessage(errorMessage);
                 setConfigRequiredDialog(true);
               } else if (
                 (errorCode === 5001 || errorCode === 5002) &&
                 /401|403|unauthorized|api.?key|认证|未配置|无效/.test(errorMessage.toLowerCase())
               ) {
-                displayContent = "⚠️ API Key 无效或未配置，无法连接模型服务。\n\n请点击页面弹出的提示框前往系统设置页面检查 API Key 配置。";
+                displayContent = `⚠️ ${errorMessage}\n\n请点击页面弹出的提示框前往系统设置页面检查 API Key 配置。`;
+                setConfigRequiredMessage(errorMessage);
                 setConfigRequiredDialog(true);
               } else {
                 displayContent = `⚠️ ${errorMessage}`;
@@ -817,6 +815,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         toast,
         showToast,
         configRequiredDialog,
+        configRequiredMessage,
         dismissConfigRequiredDialog,
       }}
     >
