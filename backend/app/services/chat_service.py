@@ -69,6 +69,19 @@ def _build_context(chunks: list[RefChunk]) -> str:
     return "\n\n".join(parts)
 
 
+class _SafeJsonEncoder(json.JSONEncoder):
+    """防御 JSON 编码器 — 处理 pgvector 可能带入的 numpy 标量类型。"""
+
+    def default(self, o):
+        # numpy.float32 / float64 → Python float
+        if hasattr(o, "item") and callable(o.item):
+            try:
+                return float(o.item())
+            except (TypeError, ValueError):
+                pass
+        return super().default(o)
+
+
 async def _push_thinking(session_id: str, round_key: str, step: dict) -> None:
     """将推理步骤写入 Redis LIST，按轮次隔离（非阻塞，Redis 不可用时静默跳过）。"""
     try:
@@ -76,10 +89,15 @@ async def _push_thinking(session_id: str, round_key: str, step: dict) -> None:
         from app.config import settings
         redis = await get_redis()
         key = f"mv:thinking:{session_id}:{round_key}"
-        await asyncio.wait_for(redis.lpush(key, json.dumps(step)), timeout=2.0)
+        await asyncio.wait_for(
+            redis.lpush(key, json.dumps(step, cls=_SafeJsonEncoder)), timeout=2.0
+        )
         await asyncio.wait_for(redis.expire(key, settings.THINKING_TTL_SECONDS), timeout=2.0)
     except Exception:
-        logger.warning(f"redis_push_thinking_failed session_id={session_id} round_key={round_key} phase={step.get('phase')}")
+        logger.warning(
+            f"redis_push_thinking_failed session_id={session_id} "
+            f"round_key={round_key} phase={step.get('phase')}"
+        )
 
 
 async def chat_stream(
@@ -286,7 +304,7 @@ async def chat_stream(
         "phase": "matching",
         "message": f"查找到 {len(chunks)} 个相关文档分块，来自 {len(doc_names)} 份文档：",
         "elapsed_ms": int((time.time() - t_start) * 1000),
-        "similarity": round(chunks[0].similarity, 4),
+        "similarity": float(round(chunks[0].similarity, 4)),
     }
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
@@ -300,7 +318,7 @@ async def chat_stream(
                 "phase": "matching",
                 "message": f" -> [{idx}.{ci+1}] {c.doc_name}{page_str}，匹配度: {c.similarity:.1%}",
                 "elapsed_ms": int((time.time() - t_start) * 1000),
-                "similarity": round(c.similarity, 4),
+                "similarity": float(round(c.similarity, 4)),
             }
             await _push_thinking(req.session_id, round_key, step)
             yield ("progress", json.dumps(step))

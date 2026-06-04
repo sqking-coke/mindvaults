@@ -19,13 +19,17 @@ from app.models.chunk import KbChunk
 
 
 def _cosine_distance(a: list[float], b: list[float]) -> float:
-    """计算两个向量的余弦距离 (1 - cosine_similarity)。"""
+    """计算两个向量的余弦距离 (1 - cosine_similarity)。
+
+    注意：pgvector 质心向量可能包含 numpy.float32 元素，必须显式 float() 归一化，
+    否则 round(numpy.float32, 4) 仍返回 numpy.float32，导致 json.dumps 失败。
+    """
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
     if norm_a == 0 or norm_b == 0:
-        return 1.0  # 零向量视为完全不相似
-    return 1.0 - dot / (norm_a * norm_b)
+        return 1.0
+    return float(1.0 - dot / (norm_a * norm_b))
 
 
 async def match_kb_by_centroid(
@@ -87,7 +91,7 @@ async def match_kb_by_centroid(
     return {
         "kb_id": first_kb.id,
         "kb_name": first_kb.name,
-        "distance": round(first_dist, 4),
+        "distance": float(round(first_dist, 4)),
         "method": "centroid",
     }
 

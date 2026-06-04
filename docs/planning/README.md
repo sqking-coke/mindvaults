@@ -37,6 +37,12 @@
 **DBA/架构师**：05 → 03 → 02
 **产品经理**：01 → 08 → 09 → 10
 
+## Bug 修复记录
+
+| 文件 | 日期 | 描述 |
+|------|------|------|
+| [numpy.float32 JSON 序列化崩溃](../bugfix/numpy-float32-json-serialization.md) | 2026-06-04 | pgvector + numpy 环境 round() 不转 Python float，json.dumps 崩溃 |
+
 ## 文档约定
 
 - 所有 API 路径以 `/api/v1` 为前缀

@@ -117,7 +117,7 @@ async def _pgvector_search(
             chunk_id=row.chunk_id,
             doc_name=row.doc_name,
             content=row.content,
-            similarity=round(row.similarity, 4),
+            similarity=float(round(row.similarity, 4)),
             page=row.page,
             result_type=row.result_type,
         )
