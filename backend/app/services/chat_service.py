@@ -390,6 +390,7 @@ async def chat_stream(
         "done",
         json.dumps(
             {
+                "qa_record_id": record.id,
                 "ref_chunks": [
                     {
                         "chunk_id": c.chunk_id,

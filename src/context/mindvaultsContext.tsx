@@ -442,13 +442,14 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 refChunkToCitation(rc, i),
               );
               const roundKey = (event.data as any).round_key as string | undefined;
+              const qaRecordId = (event.data as any).qa_record_id as number | undefined;
               setConversations((prev) =>
                 prev.map((c) =>
                   c.id === sessionId
                     ? {
                         ...c,
                         messages: c.messages.map((m) =>
-                          m.id === assistantId ? { ...m, citations, roundKey } : m,
+                          m.id === assistantId ? { ...m, citations, roundKey, qaRecordId } : m,
                         ),
                       }
                     : c,

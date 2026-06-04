@@ -407,10 +407,8 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                                   if (alreadySaved) return;
                                   const kbId = activeKbId ? parseInt(activeKbId) : 1;
                                   try {
-                                    const msgId = msg.id;
-                                    const qaIdMatch = msgId.match(/msg-assistant-(\d+)/);
-                                    if (qaIdMatch) {
-                                      await saveInsight(parseInt(qaIdMatch[1]), kbId);
+                                    if (msg.qaRecordId) {
+                                      await saveInsight(msg.qaRecordId, kbId);
                                       setSavedMessageIds(prev => new Set(prev).add(msg.id));
                                       showToast("知识点已提交审核", "success");
                                     } else {
