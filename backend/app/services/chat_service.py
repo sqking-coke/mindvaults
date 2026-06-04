@@ -391,25 +391,25 @@ async def chat_stream(
         f"chunks={len(chunks)} elapsed_ms={elapsed_ms}"
     )
 
-    yield (
-        "done",
-        json.dumps(
-            {
-                "qa_record_id": record.id,
-                "ref_chunks": [
-                    {
-                        "chunk_id": c.chunk_id,
-                        "doc_name": c.doc_name,
-                        "content": c.content,
-                        "similarity": c.similarity,
-                        "page": c.page,
-                    }
-                    for c in chunks
-                ],
-                "round_key": round_key,
-            }
-        ),
-    )
+    try:
+        done_data = {
+            "qa_record_id": record.id,
+            "ref_chunks": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "doc_name": c.doc_name,
+                    "content": c.content,
+                    "similarity": float(c.similarity),
+                    "page": c.page,
+                }
+                for c in chunks
+            ],
+            "round_key": round_key,
+        }
+        yield ("done", json.dumps(done_data, cls=_SafeJsonEncoder))
+    except Exception as exc:
+        logger.error(f"rag_done_serialize_failed session_id={req.session_id} error=\"{exc}\"")
+        yield ("error", json.dumps({"code": 9001, "message": "响应序列化失败，请重试"}))
 
 
 # 历史查询 / 会话列表
