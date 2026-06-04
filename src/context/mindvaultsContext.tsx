@@ -80,6 +80,7 @@ interface mindvaultsContextType {
   configRequiredDialog: boolean;
   configRequiredMessage: string;
   dismissConfigRequiredDialog: () => void;
+  isDemo: boolean;
 }
 
 const mindvaultsContext = createContext<mindvaultsContextType | undefined>(undefined);
@@ -102,6 +103,9 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isKbLoading, setIsKbLoading] = useState(true);
   const [activeKbId, setActiveKbId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+
+  // --- Demo mode ---
+  const [isDemo] = useState(true);
 
   // --- Toast notification ---
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -813,6 +817,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         configRequiredDialog,
         configRequiredMessage,
         dismissConfigRequiredDialog,
+        isDemo,
       }}
     >
       {children}

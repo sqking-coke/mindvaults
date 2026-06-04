@@ -2,7 +2,6 @@
 
 import React, { useState, useRef } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
-import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import { Upload } from "lucide-react";
 
 interface UploadZoneProps {
@@ -17,14 +16,13 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
 
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [demoBlock, setDemoBlock] = useState(false);
 
   const { isDemo } = usemindvaults();
 
   const handleFiles = (files: File[]) => {
     if (!activeKbId || files.length === 0) return;
     if (isDemo) {
-      setDemoBlock(true);
+      showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
       return;
     }
     uploadDocuments(activeKbId, files);
@@ -51,8 +49,17 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const onClickZone = (e: React.MouseEvent) => {
+    if (isDemo) {
+      e.preventDefault();
+      e.stopPropagation();
+      showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+    }
+  };
+
   return (
     <div
+      onClick={onClickZone}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -84,16 +91,6 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
           </p>
         </div>
       </div>
-
-      <ConfirmDialog
-        open={demoBlock}
-        onClose={() => setDemoBlock(false)}
-        onConfirm={() => setDemoBlock(false)}
-        title="演示环境"
-        message="演示环境不支持上传文档，请自部署后体验完整功能。"
-        confirmLabel="知道了"
-        variant="warning"
-      />
     </div>
   );
 }

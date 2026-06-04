@@ -36,12 +36,10 @@ export default function KBDashboard() {
     }
   }, [showCreateForm]);
 
-  const [demoBlock, setDemoBlock] = useState<{ title: string; message: string } | null>(null);
-
   const handleCreateKb = (e: React.FormEvent) => {
     e.preventDefault();
     if (isDemo) {
-      setDemoBlock({ title: "演示环境", message: "演示环境不支持新建知识库，请自部署后体验完整功能。" });
+      showToast("演示环境不支持新建知识库，请自部署后体验完整功能", "warning");
       return;
     }
     if (!newKbName.trim()) return;
@@ -54,7 +52,7 @@ export default function KBDashboard() {
   const handleDeleteKb = (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (isDemo) {
-      setDemoBlock({ title: "演示环境", message: "演示环境不支持删除知识库，请自部署后体验完整功能。" });
+      showToast("演示环境不支持删除知识库，请自部署后体验完整功能", "warning");
       return;
     }
     setDeleteKbConfirm({ id, name });
@@ -249,15 +247,6 @@ export default function KBDashboard() {
         message={<>将永久删除知识库 <b className="text-slate-700">{deleteKbConfirm?.name}</b> 及其中的所有文档文件，该操作不可恢复。</>}
       />
 
-      <ConfirmDialog
-        open={!!demoBlock}
-        onClose={() => setDemoBlock(null)}
-        onConfirm={() => setDemoBlock(null)}
-        title={demoBlock?.title || ""}
-        message={demoBlock?.message || ""}
-        confirmLabel="知道了"
-        variant="warning"
-      />
     </div>
   );
 }
