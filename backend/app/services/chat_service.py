@@ -158,7 +158,7 @@ async def chat_stream(
     yield ("progress", json.dumps(step))
 
     try:
-        query_embedding = await embed_text(req.question, api_key=emb_cfg.api_key, base_url=emb_cfg.base_url, provider=emb_cfg.provider)
+        query_embedding = await embed_text(req.question, api_key=emb_cfg.api_key, base_url=emb_cfg.base_url, provider=emb_cfg.provider, model=emb_cfg.model)
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")

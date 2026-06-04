@@ -49,7 +49,8 @@ async def resolve_embedding_config(
         base_url = sys_emb_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL or "http://localhost:11434"
         provider_for_call = "openai"
 
-    model = settings.EMBEDDING_MODEL
+    sys_emb_model = sys_cfg.embedding_model if sys_cfg else None
+    model = sys_emb_model or settings.EMBEDDING_MODEL
 
     return EmbeddingConfig(
         api_key=api_key,
