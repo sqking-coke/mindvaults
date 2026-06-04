@@ -392,6 +392,7 @@ async def chat_stream(
     )
 
     try:
+        logger.info(f"rag_done_serializing session_id={req.session_id} chunks={len(chunks)}")
         done_data = {
             "qa_record_id": record.id,
             "ref_chunks": [
