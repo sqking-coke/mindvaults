@@ -86,6 +86,7 @@ async def ingest_document(
                 api_key=emb_cfg.api_key,
                 base_url=emb_cfg.base_url,
                 provider=emb_cfg.provider,
+                model=emb_cfg.model,
             )
         except Exception as exc:
             logger.error(f"embedding_batch_failed doc_id={doc_id} chunks={len(chunk_texts)} error=\"{exc}\"")
