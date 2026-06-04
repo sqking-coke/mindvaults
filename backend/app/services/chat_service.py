@@ -274,7 +274,7 @@ async def chat_stream(
     # — 3.5 Reranker 精排 —
     try:
         from app.services.reranker_service import rerank
-        chunk_dicts = [{"content": c.content, "chunk_id": c.chunk_id, "doc_name": c.doc_name, "similarity": c.similarity, "page": c.page} for c in candidate_chunks]
+        chunk_dicts = [{"content": c.content, "chunk_id": c.chunk_id, "doc_name": c.doc_name, "similarity": float(c.similarity), "page": c.page} for c in candidate_chunks]
         ranked_dicts = await rerank(req.question, chunk_dicts, top_k=k, base_url=emb_cfg.base_url, api_key=emb_cfg.api_key)
         chunks = [
             RefChunk(
@@ -386,7 +386,7 @@ async def chat_stream(
                         "chunk_id": c.chunk_id,
                         "doc_name": c.doc_name,
                         "content": c.content,
-                        "similarity": c.similarity,
+                        "similarity": float(c.similarity),
                         "page": c.page,
                     }
                     for c in chunks
