@@ -1,7 +1,8 @@
 """KB 级别 RAG 参数配置（每个 KB 可选覆写，空则走系统默认）。"""
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import BigInteger, Integer, Float, DateTime, ForeignKey, func
+from sqlalchemy import BigInteger, Integer, Float, String, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models import Base
