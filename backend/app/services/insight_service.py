@@ -243,6 +243,7 @@ async def extract_insights(
                 api_key=emb_cfg.api_key,
                 base_url=emb_cfg.base_url,
                 provider=emb_cfg.provider,
+                model=emb_cfg.model,
             )
         except Exception as exc:
             logger.error(f"insight_embedding_failed title=\"{title[:50]}\" error=\"{exc}\"")
@@ -498,6 +499,7 @@ async def save_insight_from_qa(
             api_key=emb_cfg.api_key,
             base_url=emb_cfg.base_url,
             provider=emb_cfg.provider,
+            model=emb_cfg.model,
         )
     except Exception as exc:
         logger.error(f"insight_save_embedding_failed title=\"{title[:50]}\" error=\"{exc}\"")
