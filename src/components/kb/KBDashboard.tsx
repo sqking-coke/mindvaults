@@ -189,17 +189,15 @@ export default function KBDashboard() {
                     <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white shadow-sm transition-all duration-200">
                       <Database className="h-5 w-5" />
                     </div>
-                    {kb.id !== 1 && (
-                      <button
-                        onClick={(e) => handleDeleteKb(String(kb.id), kb.name, e)}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        className="text-slate-400 hover:text-red-500 p-1 rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-red-400"
-                        title="删除此知识库挂载"
-                        aria-label={`删除知识库: ${kb.name}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
+                    <button
+                      onClick={(e) => handleDeleteKb(String(kb.id), kb.name, e)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="text-slate-400 hover:text-red-500 p-1 rounded-lg hover:bg-slate-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all focus:outline-none focus:ring-2 focus:ring-red-400"
+                      title="删除此知识库挂载"
+                      aria-label={`删除知识库: ${kb.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                   
                   <h3 className="font-bold text-slate-800 text-sm truncate group-hover:text-indigo-600 transition-colors">
