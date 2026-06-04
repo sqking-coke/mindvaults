@@ -7,6 +7,7 @@ import UploadZone from "@/components/kb/UploadZone";
 import RetrievalSandbox from "@/components/kb/RetrievalSandbox";
 import VaultImportDialog from "@/components/kb/VaultImportDialog";
 import SystemKBHome from "@/components/kb/SystemKBHome";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { 
   Database, 
@@ -29,6 +30,7 @@ export default function KBPage() {
   // Navigation states
   const [kbTab, setKbTab] = useState<"docs" | "test">("docs");
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [demoBlock, setDemoBlock] = useState(false);
 
   // Toast notifications state
   const [toasts, setToasts] = useState<{ id: string; message: string; type: "info" | "success" | "error" | "warning" }[]>([]);
@@ -142,7 +144,7 @@ export default function KBPage() {
                     <button
                       onClick={() => {
                         if (isDemo) {
-                          showToast("演示环境不支持导入 Vault，请自部署后体验完整功能", "warning");
+                          setDemoBlock(true);
                           return;
                         }
                         setIsImportOpen(true);
@@ -173,10 +175,20 @@ export default function KBPage() {
       </div>
 
       {/* Vault Import Dialog Modal */}
-      <VaultImportDialog 
-        isOpen={isImportOpen} 
-        onClose={() => setIsImportOpen(false)} 
-        showToast={showToast} 
+      <VaultImportDialog
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        showToast={showToast}
+      />
+
+      <ConfirmDialog
+        open={demoBlock}
+        onClose={() => setDemoBlock(false)}
+        onConfirm={() => setDemoBlock(false)}
+        title="演示环境"
+        message="演示环境不支持导入 Obsidian Vault，请自部署后体验完整功能。"
+        confirmLabel="知道了"
+        variant="warning"
       />
 
       {/* Floating Toast Notification Container */}

@@ -75,8 +75,8 @@ interface mindvaultsContextType {
   loadSystemConfig: () => Promise<void>;
   updateSystemConfig: (config: SystemConfigRequest) => Promise<boolean>;
   loadOllamaModels: () => Promise<void>;
-  toast: { message: string; type: "success" | "error" } | null;
-  showToast: (message: string, type?: "success" | "error") => void;
+  toast: { message: string; type: "success" | "error" | "warning" } | null;
+  showToast: (message: string, type?: "success" | "error" | "warning") => void;
   configRequiredDialog: boolean;
   configRequiredMessage: string;
   dismissConfigRequiredDialog: () => void;
@@ -110,7 +110,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [configRequiredDialog, setConfigRequiredDialog] = useState(false);
   const [configRequiredMessage, setConfigRequiredMessage] = useState("");
   const dismissConfigRequiredDialog = useCallback(() => setConfigRequiredDialog(false), []);
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+  const showToast = useCallback((message: string, type: "success" | "error" | "warning" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
