@@ -341,15 +341,19 @@ async def seed(llm_api_key: str | None = None, embedding_api_key: str | None = N
         print("[seed] 旧数据已清除，开始写入示例数据...")
 
         # 确保默认系统库存在（id=1），数据治理功能依赖此 KB
-        await db.execute(
-            text(
-                "INSERT INTO kb_knowledge_bases (id, name, description, kb_type) "
-                "VALUES (1, '默认系统库', '系统自动创建的核心知识库，承载文档存储与对话知识沉淀。', 'general') "
-                "ON CONFLICT (id) DO NOTHING"
-            )
-        )
-        await db.commit()
-        print("[seed]   确保默认系统库 id=1 存在")
+        from app.models.knowledge_base import KnowledgeBase
+        existing = await db.get(KnowledgeBase, 1)
+        if existing is None:
+            db.add(KnowledgeBase(
+                id=1,
+                name="默认系统库",
+                description="系统自动创建的核心知识库，承载文档存储与对话知识沉淀。",
+                kb_type="general",
+            ))
+            await db.flush()
+            print("[seed]   创建默认系统库 id=1")
+        else:
+            print("[seed]   默认系统库 id=1 已存在")
 
         upload_dir = Path(settings.UPLOAD_DIR)
         upload_dir.mkdir(parents=True, exist_ok=True)

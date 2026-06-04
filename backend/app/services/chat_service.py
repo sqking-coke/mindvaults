@@ -162,14 +162,19 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
+        err_msg = str(exc)
+        if "400" in err_msg and "siliconflow" in err_msg.lower():
+            err_msg = "Embedding 模型名称可能不正确，请在系统设置中检查。硅基流动模型格式：BAAI/bge-large-zh-v1.5"
+        elif "401" in err_msg or "403" in err_msg:
+            err_msg = "Embedding API Key 无效，请在系统设置中检查。"
         if session is None:
             await db.rollback()
-            yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
+            yield ("error", json.dumps({"code": error_code, "message": err_msg}))
             return
         record = KbQaRecord(
             session_id=session.id,
             question=req.question,
-            answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
+            answer=f"Embedding 服务异常，请检查模型配置。{err_msg}",
             ref_chunks=[],
             model_name=settings.LLM_MODEL,
             round_key=round_key,

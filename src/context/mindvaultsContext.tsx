@@ -108,7 +108,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isDemo] = useState(true);
 
   // --- Toast notification ---
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "warning" } | null>(null);
 
   // --- Config required dialog ---
   const [configRequiredDialog, setConfigRequiredDialog] = useState(false);

@@ -49,7 +49,13 @@ async def resolve_embedding_config(
         base_url = sys_emb_url or settings.EMBEDDING_BASE_URL or settings.LLM_BASE_URL or "http://localhost:11434"
         provider_for_call = "openai"
 
-    model = settings.EMBEDDING_MODEL
+    sys_emb_model = sys_cfg.embedding_model if sys_cfg else None
+    model = sys_emb_model or settings.EMBEDDING_MODEL
+
+    logger.info(
+        f"embedding_config_resolved provider={provider_for_call} "
+        f"model={model} base_url={base_url}"
+    )
 
     return EmbeddingConfig(
         api_key=api_key,
@@ -151,6 +157,8 @@ async def _embed_openai(text: str, api_key: str | None = None, base_url: str | N
         raise LLMConfigRequiredError("Embedding API Key 未配置，请在设置页面添加")
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {active_api_key}"}
     active_model = model or settings.EMBEDDING_MODEL
+
+    logger.info(f"embedding_request provider=openai url={url} model={active_model}")
 
     payload = {
         "model": active_model,

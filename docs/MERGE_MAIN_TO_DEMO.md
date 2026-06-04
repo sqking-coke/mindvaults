@@ -87,3 +87,4 @@ InsightReview   SystemKBHome   kb/manage/page
 7. **UploadZone onClick** 必须拦截在文件对话框之前，不是选完文件再提示
 8. **demo 拦截用 toast 非 ConfirmDialog**，右下角弹出，3 秒自动消失
 9. **kb_service 删 KB** SQLAlchemy ORM 会把 FK 置 NULL 而非 CASCADE DELETE，必须手动删子表
+10. **ingestion embed_batch 缺 model** 主分支靠 `.env` 兜底所以不报错，demo 没这环境变量。每次合并后检查 `ingestion_service.py` 调 `embed_batch` 必须传 `model=emb_cfg.model`
