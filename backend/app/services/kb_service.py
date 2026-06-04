@@ -1,13 +1,15 @@
 """知识库 CRUD 服务层。"""
 from loguru import logger
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import KbNotFoundError
+from app.core.exceptions import KbNotFoundError, AppException
 from app.models.knowledge_base import KnowledgeBase
 from app.models.config import KbConfig
 from app.models.document import KbDocument
 from app.models.session import KbSession
+from app.models.chunk import KbChunk
+from app.models.qa_record import KbQaRecord
 from app.schemas.knowledge_base import (
     KbCreateRequest, KbUpdateRequest, KbConfigRequest,
 )
@@ -97,8 +99,6 @@ async def delete_kb(db: AsyncSession, kb_id: int) -> None:
     系统 KB（id=1 默认知识库 + kb_type='deposition' 沉积库）禁止删除。
     """
     from pathlib import Path
-    from sqlalchemy import delete
-    from app.core.exceptions import AppException
 
     kb = await get_kb(db, kb_id)
 
@@ -116,10 +116,18 @@ async def delete_kb(db: AsyncSession, kb_id: int) -> None:
         await db.execute(select(KbSession.session_id).where(KbSession.kb_id == kb_id))
     ).fetchall()
 
-    # 3. 手动删 kb_config（PK 即 FK，不能依赖 CASCADE 置 NULL）
+    # 3. 手动删除级联数据（避免 SQLAlchemy ORM 将 FK 置 NULL 而非 DELETE）
+    await db.execute(delete(KbQaRecord).where(KbQaRecord.session_id.in_(
+        select(KbSession.id).where(KbSession.kb_id == kb_id)
+    )))
+    await db.execute(delete(KbSession).where(KbSession.kb_id == kb_id))
+    await db.execute(delete(KbChunk).where(KbChunk.document_id.in_(
+        select(KbDocument.id).where(KbDocument.kb_id == kb_id)
+    )))
+    await db.execute(delete(KbDocument).where(KbDocument.kb_id == kb_id))
     await db.execute(delete(KbConfig).where(KbConfig.kb_id == kb_id))
 
-    # 4. 级联删除 KB
+    # 4. 删除 KB
     await db.delete(kb)
     await db.commit()
 
