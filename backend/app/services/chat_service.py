@@ -162,19 +162,14 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
-        err_msg = str(exc)
-        if "400" in err_msg and "siliconflow" in err_msg.lower():
-            err_msg = "Embedding 模型名称可能不正确，请在系统设置中检查。硅基流动模型格式：BAAI/bge-large-zh-v1.5"
-        elif "401" in err_msg or "403" in err_msg:
-            err_msg = "Embedding API Key 无效，请在系统设置中检查。"
         if session is None:
             await db.rollback()
-            yield ("error", json.dumps({"code": error_code, "message": err_msg}))
+            yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
             return
         record = KbQaRecord(
             session_id=session.id,
             question=req.question,
-            answer=f"Embedding 服务异常，请检查模型配置。{err_msg}",
+            answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
             ref_chunks=[],
             model_name=settings.LLM_MODEL,
             round_key=round_key,
@@ -240,23 +235,14 @@ async def chat_stream(
 
     # — 4. 会话管理（延后到路由完成，使用正确的 kb_id）—
     if session is None:
-        is_demo = settings.DEMO_MODE
-        if is_demo:
-            session = KbSession(
-                session_id=req.session_id,
-                kb_id=max(kb_id, 1),
-                title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
-                id=0,
-            )
-        else:
-            session = KbSession(
-                session_id=req.session_id,
-                kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
-                title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
-            )
-            db.add(session)
-            await db.flush()
-            await db.commit()
+        session = KbSession(
+            session_id=req.session_id,
+            kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
+            title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
+        )
+        db.add(session)
+        await db.flush()
+        await db.commit()
 
     # — 5. 检索（粗排 top_k*2，后续 Reranker 精排）—
     kb_cfg = await get_config_by_kb(db, max(kb_id, 1))
@@ -288,7 +274,7 @@ async def chat_stream(
     # — 3.5 Reranker 精排 —
     try:
         from app.services.reranker_service import rerank
-        chunk_dicts = [{"content": c.content, "chunk_id": c.chunk_id, "doc_name": c.doc_name, "similarity": c.similarity, "page": c.page} for c in candidate_chunks]
+        chunk_dicts = [{"content": c.content, "chunk_id": c.chunk_id, "doc_name": c.doc_name, "similarity": float(c.similarity), "page": c.page} for c in candidate_chunks]
         ranked_dicts = await rerank(req.question, chunk_dicts, top_k=k, base_url=emb_cfg.base_url, api_key=emb_cfg.api_key)
         chunks = [
             RefChunk(
@@ -391,26 +377,24 @@ async def chat_stream(
         f"chunks={len(chunks)} elapsed_ms={elapsed_ms}"
     )
 
-    try:
-        logger.info(f"rag_done_serializing session_id={req.session_id} chunks={len(chunks)}")
-        done_data = {
-            "qa_record_id": record.id,
-            "ref_chunks": [
-                {
-                    "chunk_id": c.chunk_id,
-                    "doc_name": c.doc_name,
-                    "content": c.content,
-                    "similarity": float(c.similarity),
-                    "page": c.page,
-                }
-                for c in chunks
-            ],
-            "round_key": round_key,
-        }
-        yield ("done", json.dumps(done_data, cls=_SafeJsonEncoder))
-    except Exception as exc:
-        logger.error(f"rag_done_serialize_failed session_id={req.session_id} error=\"{exc}\"")
-        yield ("error", json.dumps({"code": 9001, "message": "响应序列化失败，请重试"}))
+    yield (
+        "done",
+        json.dumps(
+            {
+                "ref_chunks": [
+                    {
+                        "chunk_id": c.chunk_id,
+                        "doc_name": c.doc_name,
+                        "content": c.content,
+                        "similarity": float(c.similarity),
+                        "page": c.page,
+                    }
+                    for c in chunks
+                ],
+                "round_key": round_key,
+            }
+        ),
+    )
 
 
 # 历史查询 / 会话列表

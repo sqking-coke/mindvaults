@@ -175,7 +175,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const kbId = kbs.length > 0 ? kbs[0].id : 1;
         const [docResult, sessions] = await Promise.all([
           fetchDocuments(1, 50, kbId),
-          fetchSessions(),
+          isDemo ? Promise.resolve([] as Awaited<ReturnType<typeof fetchSessions>>) : fetchSessions(),
         ]);
         if (cancelled) return;
 
