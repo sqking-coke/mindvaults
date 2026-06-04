@@ -72,3 +72,11 @@ if session is None:
 - [ ] 检查 router.py 是否注册了 insights_router + admin_router
 - [ ] 检查 chat_service.py 是否有 DEMO_MODE 会话创建守卫
 - [ ] `npx next build --no-lint` 前端编译通过
+
+## 已知踩坑记录
+
+### seed_demo 清空 KB 会删掉默认系统库
+`seed_demo.py` 的 `DELETE FROM kb_knowledge_bases` 会删掉 id=1 默认系统库，后续数据治理功能（知识沉淀）依赖此 KB。**修复**：DELETE 后立即 `INSERT ... ON CONFLICT DO NOTHING` 重建 id=1。
+
+### 保存到知识库的 qa_record_id 不能用 Date.now()
+前端消息 ID 用 `msg-assistant-${Date.now()}` 只是临时标识，不能当数据库 ID 用。时间戳值（如 1780544273592）超出 int32 范围，asyncpg 直接报 DataError。**修复**：后端 `done` 事件返回真实 `qa_record_id`，前端存入 `Message.qaRecordId`，保存时直接使用。
