@@ -392,6 +392,7 @@ async def chat_stream(
                     for c in chunks
                 ],
                 "round_key": round_key,
+                "qa_record_id": record.id,
             }
         ),
     )

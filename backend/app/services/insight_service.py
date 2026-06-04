@@ -4,6 +4,7 @@
 经用户审核后参与检索。
 """
 
+import asyncio
 import json
 import time
 
@@ -354,6 +355,32 @@ async def get_insight(db: AsyncSession, insight_id: int) -> KbInsight | None:
     return await db.get(KbInsight, insight_id)
 
 
+async def delete_insight(db: AsyncSession, insight_id: int) -> int | None:
+    """删除 insight，同时清理关联 chunk 和空文档。返回 deleted_id 或 None。"""
+    insight = await db.get(KbInsight, insight_id)
+    if insight is None:
+        return None
+
+    # 查关联 chunk（审核通过后才有）
+    chunks = (await db.execute(
+        select(KbChunk).where(KbChunk.source_insight_id == insight_id)
+    )).scalars().all()
+
+    for chunk in chunks:
+        doc = await db.get(KbDocument, chunk.document_id)
+        if doc:
+            doc.chunk_count = max(0, doc.chunk_count - 1)
+            # chunk_count 归零 → 删虚拟文档
+            if doc.chunk_count == 0:
+                await db.delete(doc)
+        await db.delete(chunk)
+
+    await db.delete(insight)
+
+    logger.info(f"insight_deleted id={insight_id} chunks_cleaned={len(chunks)}")
+    return insight_id
+
+
 # 系统知识库 ID（所有 insight 统一归集到这里）
 _SYSTEM_KB_ID = 1
 
@@ -439,13 +466,65 @@ async def review_insight(
     return insight
 
 
+async def update_insight_target_kb(
+    db: AsyncSession,
+    insight_id: int,
+    new_kb_id: int,
+) -> KbInsight:
+    """更新 insight 的目标 KB。若已审核通过，同步迁移 chunk。"""
+    insight = await db.get(KbInsight, insight_id)
+    if insight is None:
+        raise AppException(code=2001, message="知识点不存在", status_code=404)
+
+    old_kb_id = insight.target_kb_id or insight.kb_id
+
+    if old_kb_id == new_kb_id:
+        return insight
+
+    # — 迁 chunk：旧 KB 删 → 新 KB 建 —
+    if insight.status == "approved":
+        # 查找旧 chunk
+        old_chunks = (await db.execute(
+            select(KbChunk).where(KbChunk.source_insight_id == insight_id)
+        )).scalars().all()
+
+        # 删除旧 chunk + 更新旧文档 chunk_count
+        for chunk in old_chunks:
+            old_doc = await db.get(KbDocument, chunk.document_id)
+            if old_doc and old_doc.chunk_count > 0:
+                old_doc.chunk_count -= 1
+            await db.delete(chunk)
+
+        # 在新 KB 重建 chunk
+        old_target = insight.target_kb_id
+        insight.target_kb_id = new_kb_id
+        await _insight_to_chunk(db, insight)
+        # 恢复 target_kb_id（_insight_to_chunk 里用这个字段）
+        insight.target_kb_id = new_kb_id
+    else:
+        insight.target_kb_id = new_kb_id
+
+    await db.flush()
+
+    logger.info(
+        f"insight_target_kb_changed id={insight_id} "
+        f"old_kb={old_kb_id} new_kb={new_kb_id} status={insight.status}"
+    )
+
+    return insight
+
+
 async def save_insight_from_qa(
     db: AsyncSession,
     qa_record_id: int,
     kb_id: int,
     sys_cfg: SystemConfig,
-) -> KbInsight | None:
-    """手动触发单条 QA 记录的知识点提炼。"""
+) -> tuple[KbInsight | None, dict | None]:
+    """手动触发单条 QA 记录的知识点提炼（同步验证 + 创建 placeholder，立即返回）。
+
+    返回 (placeholder_insight, bg_config)。调用方 commit 后应通过
+    asyncio.create_task(process_insight_background(bg_config)) 后台完成 LLM 提炼。
+    """
     qa = await db.get(KbQaRecord, qa_record_id)
     if qa is None:
         raise AppException(code=2001, message="QA 记录不存在", status_code=404)
@@ -460,76 +539,152 @@ async def save_insight_from_qa(
     if dup_check.scalar_one_or_none() is not None:
         raise AppException(code=1001, message="该回答已提炼过知识点", status_code=409)
 
-    emb_cfg = await resolve_embedding_config(sys_cfg)
-    provider = sys_cfg.llm_provider or "ollama"
-    model = sys_cfg.llm_model or "qwen3"
-    base_url = sys_cfg.llm_base_url or "http://localhost:11434"
-    api_key = sys_cfg.llm_api_key or ""
-
-    user_prompt = f"请从以下对话中提炼知识点：\nQ: {qa.question}\nA: {qa.answer[:2000]}"
-
-    try:
-        response = await _llm_complete(
-            INSIGHT_EXTRACTION_SYSTEM, user_prompt,
-            provider=provider, base_url=base_url,
-            model=model, api_key=api_key, temperature=0.0,
-        )
-        candidates = _parse_extraction_response(response)
-    except Exception as exc:
-        logger.error(f"insight_save_llm_failed qa_id={qa_record_id} error=\"{exc}\"")
-        raise AppException(code=5001, message=f"LLM 提炼失败: {exc}", status_code=502)
-
-    if not candidates:
-        return None
-
-    # 取第一个提炼结果
-    candidate = candidates[0]
-    title = candidate.get("title", "").strip()
-    content = candidate.get("content", "").strip()
-    confidence = float(candidate.get("confidence", 0.0))
-    tags = candidate.get("tags", [])
-
-    if not title or not content:
-        return None
-
-    # 生成 embedding
-    try:
-        embedding = await embed_text(
-            title + "\n" + content,
-            api_key=emb_cfg.api_key,
-            base_url=emb_cfg.base_url,
-            provider=emb_cfg.provider,
-            model=emb_cfg.model,
-        )
-    except Exception as exc:
-        logger.error(f"insight_save_embedding_failed title=\"{title[:50]}\" error=\"{exc}\"")
-        raise
-
-    auto_threshold = sys_cfg.insight_auto_approve_confidence
-    auto_approved = confidence >= auto_threshold
-
-    insight = KbInsight(
-        kb_id=_SYSTEM_KB_ID,    # 统一归集到系统库
-        target_kb_id=kb_id,     # 预填用户当前 KB（审核时可改）
-        title=title,
-        content=content,
-        embedding=embedding,
+    # 创建 processing 占位记录，立即返回
+    placeholder = KbInsight(
+        kb_id=_SYSTEM_KB_ID,
+        target_kb_id=kb_id,
+        title="提炼中...",
+        content="",
+        embedding=None,
         source_qa_ids=[qa_record_id],
         source_doc_ids=None,
-        status="approved" if auto_approved else "pending",
-        confidence=confidence,
-        tags=tags,
+        status="processing",
+        confidence=0.0,
+        tags=[],
     )
-    db.add(insight)
+    db.add(placeholder)
     await db.flush()
 
-    # 自动通过 → 落地为 kb_chunk
-    if auto_approved:
-        await _insight_to_chunk(db, insight)
+    bg_config = {
+        "insight_id": placeholder.id,
+        "qa_record_id": qa_record_id,
+        "kb_id": kb_id,
+        "question": qa.question,
+        "answer": qa.answer,
+    }
 
-    logger.info(
-        f"insight_saved_manual qa_id={qa_record_id} insight_id={insight.id} "
-        f"title=\"{title[:50]}\" auto_approved={auto_approved}"
-    )
+    logger.info(f"insight_save_async qa_id={qa_record_id} insight_id={placeholder.id}")
 
-    return insight
+    return placeholder, bg_config
+
+
+async def process_insight_background(config: dict) -> None:
+    """后台异步任务：LLM 提炼 + embedding + 更新 insight 状态。
+
+    独立管理 DB 会话，不依赖请求级 db。
+    """
+    from app.core.database import AsyncSessionLocal
+
+    insight_id = config["insight_id"]
+    qa_record_id = config["qa_record_id"]
+    kb_id = config["kb_id"]
+    question = config["question"]
+    answer = config["answer"]
+
+    async with AsyncSessionLocal() as db:
+        try:
+            insight = await db.get(KbInsight, insight_id)
+            if insight is None:
+                logger.error(f"insight_bg_not_found id={insight_id}")
+                return
+
+            # 加载系统配置
+            sys_cfg = (await db.execute(
+                select(SystemConfig).where(SystemConfig.id == 1)
+            )).scalar_one_or_none()
+            if sys_cfg is None:
+                sys_cfg = SystemConfig(id=1)
+                db.add(sys_cfg)
+                await db.flush()
+
+            emb_cfg = await resolve_embedding_config(sys_cfg)
+            provider = sys_cfg.llm_provider or "ollama"
+            model = sys_cfg.llm_model or "qwen3"
+            base_url = sys_cfg.llm_base_url or "http://localhost:11434"
+            api_key = sys_cfg.llm_api_key or ""
+
+            user_prompt = f"请从以下对话中提炼知识点：\nQ: {question}\nA: {answer[:2000]}"
+
+            # LLM 提炼
+            try:
+                response = await _llm_complete(
+                    INSIGHT_EXTRACTION_SYSTEM, user_prompt,
+                    provider=provider, base_url=base_url,
+                    model=model, api_key=api_key, temperature=0.0,
+                )
+                candidates = _parse_extraction_response(response)
+            except Exception as exc:
+                logger.error(f"insight_bg_llm_failed id={insight_id} error=\"{exc}\"")
+                insight.status = "rejected"
+                insight.content = f"[LLM 提炼失败: {exc}]"
+                await db.commit()
+                return
+
+            if not candidates:
+                insight.status = "rejected"
+                insight.content = "[LLM 未能提炼出有效知识点]"
+                await db.commit()
+                logger.info(f"insight_bg_empty id={insight_id}")
+                return
+
+            candidate = candidates[0]
+            title = candidate.get("title", "").strip()
+            content = candidate.get("content", "").strip()
+            confidence = float(candidate.get("confidence", 0.0))
+            tags = candidate.get("tags", [])
+
+            if not title or not content:
+                insight.status = "rejected"
+                insight.content = "[LLM 返回内容不完整]"
+                await db.commit()
+                return
+
+            # 生成 embedding
+            try:
+                embedding = await embed_text(
+                    title + "\n" + content,
+                    api_key=emb_cfg.api_key,
+                    base_url=emb_cfg.base_url,
+                    provider=emb_cfg.provider,
+                    model=emb_cfg.model,
+                )
+            except Exception as exc:
+                logger.error(f"insight_bg_embedding_failed id={insight_id} error=\"{exc}\"")
+                insight.status = "rejected"
+                insight.content = f"[Embedding 生成失败: {exc}]"
+                await db.commit()
+                return
+
+            auto_threshold = sys_cfg.insight_auto_approve_confidence
+            auto_approved = confidence >= auto_threshold
+
+            insight.title = title
+            insight.content = content
+            insight.embedding = embedding
+            insight.confidence = confidence
+            insight.tags = tags
+            insight.status = "approved" if auto_approved else "pending"
+
+            if auto_approved:
+                insight.reviewed_at = func.now()
+                await _insight_to_chunk(db, insight)
+
+            await db.commit()
+
+            logger.info(
+                f"insight_bg_completed id={insight_id} qa_id={qa_record_id} "
+                f"title=\"{title[:50]}\" auto_approved={auto_approved}"
+            )
+
+        except Exception as exc:
+            logger.error(f"insight_bg_unexpected id={insight_id} error=\"{exc}\"")
+            # 最后一搏：标记失败
+            try:
+                async with AsyncSessionLocal() as fail_db:
+                    fail_insight = await fail_db.get(KbInsight, insight_id)
+                    if fail_insight and fail_insight.status == "processing":
+                        fail_insight.status = "rejected"
+                        fail_insight.content = f"[后台处理异常: {exc}]"
+                        await fail_db.commit()
+            except Exception:
+                logger.error(f"insight_bg_fail_marker_failed id={insight_id}")

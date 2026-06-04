@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -87,9 +89,9 @@ async def save_insight(
     kb_id: int = Query(..., description="目标知识库 ID"),
     db: AsyncSession = Depends(get_db),
 ):
-    """手动保存某条 QA 回答为知识点。"""
+    """手动保存某条 QA 回答为知识点（异步处理，立即返回占位记录）。"""
     from app.models.system_config import SystemConfig
-    from app.services.insight_service import save_insight_from_qa
+    from app.services.insight_service import save_insight_from_qa, process_insight_background
 
     sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
     if sys_cfg is None:
@@ -97,12 +99,15 @@ async def save_insight(
         db.add(sys_cfg)
         await db.flush()
 
-    insight = await save_insight_from_qa(db, qa_record_id, kb_id, sys_cfg)
-    if insight is None:
+    placeholder, bg_config = await save_insight_from_qa(db, qa_record_id, kb_id, sys_cfg)
+    if placeholder is None:
         from app.core.exceptions import BadRequestError
         raise BadRequestError(message="无法从该回答中提炼知识点，可能信息量不足")
 
     await db.commit()
 
+    # 后台异步执行 LLM 提炼 + embedding
+    asyncio.create_task(process_insight_background(bg_config))
+
     from app.schemas.insight import InsightResponse
-    return success_response(InsightResponse.model_validate(insight).model_dump())
+    return success_response(InsightResponse.model_validate(placeholder).model_dump())

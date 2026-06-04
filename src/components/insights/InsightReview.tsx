@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { fetchInsights, reviewInsight, deleteInsight } from "@/services/ragService";
+import { fetchInsights, reviewInsight, deleteInsight, updateInsightTargetKb } from "@/services/ragService";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import type { Insight } from "@/types/api";
 import {
@@ -16,11 +16,13 @@ import {
   ThumbsUp,
   ThumbsDown,
   Clock,
+  Loader2,
 } from "lucide-react";
 
-type TabKey = "pending" | "approved" | "rejected";
+type TabKey = "pending" | "approved" | "rejected" | "processing";
 
 const STATUS_TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
+  { key: "processing", label: "处理中", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
   { key: "pending", label: "待审核", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "approved", label: "已通过", icon: <ThumbsUp className="h-3.5 w-3.5" /> },
   { key: "rejected", label: "已拒绝", icon: <ThumbsDown className="h-3.5 w-3.5" /> },
@@ -95,7 +97,7 @@ export default function InsightReview() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [counts, setCounts] = useState<Record<TabKey, number>>({ pending: 0, approved: 0, rejected: 0 });
+  const [counts, setCounts] = useState<Record<TabKey, number>>({ processing: 0, pending: 0, approved: 0, rejected: 0 });
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   // 每条 insight 独立的目标 KB 选择
   const [targetKbMap, setTargetKbMap] = useState<Map<number, number>>(new Map());
@@ -112,12 +114,14 @@ export default function InsightReview() {
       });
       setTargetKbMap(kbMap);
       // 加载各状态计数
-      const [pending, approved, rejected] = await Promise.all([
+      const [processing, pending, approved, rejected] = await Promise.all([
+        fetchInsights(undefined, "processing", 1, 1),
         fetchInsights(undefined, "pending", 1, 1),
         fetchInsights(undefined, "approved", 1, 1),
         fetchInsights(undefined, "rejected", 1, 1),
       ]);
       setCounts({
+        processing: processing.total,
         pending: pending.total,
         approved: approved.total,
         rejected: rejected.total,
@@ -138,9 +142,9 @@ export default function InsightReview() {
     try {
       const targetKbId = targetKbMap.get(id) ?? undefined;
       await reviewInsight(id, status, targetKbId);
-      loadInsights();
-    } catch {
-      // ignore
+      await loadInsights();
+    } catch (err) {
+      console.error("reviewInsight failed:", err);
     } finally {
       setReviewingId(null);
     }
@@ -151,9 +155,9 @@ export default function InsightReview() {
     setReviewingId(id);
     try {
       await deleteInsight(id);
-      loadInsights();
-    } catch {
-      // ignore
+      await loadInsights();
+    } catch (err) {
+      console.error("deleteInsight failed:", err);
     } finally {
       setReviewingId(null);
     }
@@ -168,7 +172,7 @@ export default function InsightReview() {
     });
   };
 
-  const totalInsights = counts.pending + counts.approved + counts.rejected;
+  const totalInsights = counts.processing + counts.pending + counts.approved + counts.rejected;
 
   return (
     <div className="space-y-6">
@@ -283,10 +287,10 @@ export default function InsightReview() {
               <Sparkles className="h-8 w-8 text-slate-300" />
             </div>
             <p className="text-sm font-semibold text-slate-500 mb-1">
-              {activeTab === "pending" ? "暂无待审核知识点" : activeTab === "approved" ? "暂无已通过知识点" : "暂无已拒绝知识点"}
+              {activeTab === "processing" ? "暂无处理中的知识点" : activeTab === "pending" ? "暂无待审核知识点" : activeTab === "approved" ? "暂无已通过知识点" : "暂无已拒绝知识点"}
             </p>
             <p className="text-xs text-slate-400">
-              {activeTab === "pending" ? "对话中的有价值内容会在每日凌晨自动提炼，也可在对话中手动保存" : ""}
+              {activeTab === "processing" ? "手动保存的知识点会在此后台提炼" : activeTab === "pending" ? "对话中的有价值内容会在每日凌晨自动提炼，也可在对话中手动保存" : ""}
             </p>
           </div>
         </div>
@@ -341,12 +345,17 @@ export default function InsightReview() {
                         {Math.round(insight.confidence * 100)}%
                       </span>
                     </div>
+                    {activeTab === "processing" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 font-medium flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" /> 提炼中
+                      </span>
+                    )}
                     {activeTab === "pending" && insight.confidence >= 0.95 && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600 border border-green-200 font-medium">
                         高置信
                       </span>
                     )}
-                    {activeTab !== "pending" && (
+                    {activeTab !== "pending" && activeTab !== "processing" && (
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
                         activeTab === "approved"
                           ? "bg-green-50 text-green-600 border-green-200"
@@ -360,12 +369,19 @@ export default function InsightReview() {
 
                 {/* Content */}
                 <div className="ml-8">
-                  <p className={`text-sm text-slate-600 leading-relaxed ${
-                    expandedIds.has(insight.id) ? "" : "line-clamp-3"
-                  }`}>
-                    {insight.content}
-                  </p>
-                  {insight.content.length > 150 && (
+                  {insight.status === "processing" ? (
+                    <p className="text-sm text-slate-400 italic flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      正在调用 LLM 提炼知识点，请稍候...
+                    </p>
+                  ) : (
+                    <p className={`text-sm text-slate-600 leading-relaxed ${
+                      expandedIds.has(insight.id) ? "" : "line-clamp-3"
+                    }`}>
+                      {insight.content}
+                    </p>
+                  )}
+                  {insight.content.length > 150 && insight.status !== "processing" && (
                     <button
                       onClick={() => toggleExpand(insight.id)}
                       className="text-xs text-indigo-500 hover:text-indigo-700 mt-1.5 flex items-center gap-1 font-medium"
@@ -391,25 +407,31 @@ export default function InsightReview() {
                       )}
                     </div>
 
-                    {/* Target KB indicator / selector */}
+                    {/* Target KB selector — 所有 tab 均可编辑 */}
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] text-slate-400 shrink-0">将分配到</span>
-                      {activeTab === "pending" ? (
-                        <KbDropdown
-                          kbs={knowledgeBases.filter(kb => kb.id !== 1)}
-                          selectedId={targetKbMap.get(insight.id) ?? insight.target_kb_id ?? 0}
-                          onSelect={(id) => setTargetKbMap((prev) => new Map(prev).set(insight.id, id))}
-                        />
-                      ) : (
-                        <span className="text-[11px] font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 max-w-[140px] truncate">
-                          {knowledgeBases.find((kb) => kb.id === insight.target_kb_id)?.name || "—"}
-                        </span>
-                      )}
+                      <KbDropdown
+                        kbs={knowledgeBases.filter(kb => kb.id !== 1)}
+                        selectedId={targetKbMap.get(insight.id) ?? insight.target_kb_id ?? 0}
+                        onSelect={(id) => {
+                          setTargetKbMap((prev) => new Map(prev).set(insight.id, id));
+                          // 非 pending 状态：直接调 API 切换
+                          if (activeTab !== "pending") {
+                            updateInsightTargetKb(insight.id, id).then(() => loadInsights()).catch((err) => console.error("updateInsightTargetKb failed:", err));
+                          }
+                        }}
+                      />
                     </div>
                   </div>
 
                   {/* Bottom row: action buttons */}
                   <div className="flex items-center gap-1.5">
+                    {activeTab === "processing" && (
+                      <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        后台处理中，完成后自动转为待审核或已入库
+                      </span>
+                    )}
                     {activeTab === "pending" && (
                       <>
                         <button

@@ -42,6 +42,7 @@ export function kbDocumentToDocRecord(doc: KbDocument): DocumentRecord {
     kbId: doc.kb_id != null ? String(doc.kb_id) : "kb-default",
     name: doc.doc_name,
     size: "—",
+    source: (doc as any).source || undefined,
     chars: doc.char_count || 0,
     chunkCount: doc.chunk_count || 0,
     status,
@@ -378,6 +379,18 @@ export async function reviewInsight(
   return api.post<Insight>(
     `/api/v1/kb/insights/${insightId}/review`,
     { status, ...(targetKbId !== undefined ? { target_kb_id: targetKbId } : {}) },
+    signal,
+  );
+}
+
+export async function updateInsightTargetKb(
+  insightId: number,
+  targetKbId: number,
+  signal?: AbortSignal,
+): Promise<Insight> {
+  return api.put<Insight>(
+    `/api/v1/kb/insights/${insightId}/target-kb`,
+    { target_kb_id: targetKbId },
     signal,
   );
 }

@@ -442,13 +442,18 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 refChunkToCitation(rc, i),
               );
               const roundKey = (event.data as any).round_key as string | undefined;
+              const qaRecordId = event.data.qa_record_id;
+              // 替换临时 ID（Date.now() 时间戳）为真实 DB ID，后续「保存到知识库」依赖此 ID
+              const realAssistantId = `msg-assistant-${qaRecordId}`;
               setConversations((prev) =>
                 prev.map((c) =>
                   c.id === sessionId
                     ? {
                         ...c,
                         messages: c.messages.map((m) =>
-                          m.id === assistantId ? { ...m, citations, roundKey } : m,
+                          m.id === assistantId
+                            ? { ...m, id: realAssistantId, citations, roundKey }
+                            : m,
                         ),
                       }
                     : c,

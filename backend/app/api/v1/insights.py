@@ -2,14 +2,14 @@
 
 from fastapi import APIRouter, Depends, Query
 from loguru import logger
-from sqlalchemy import select, delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.models.insight import KbInsight
 from app.schemas.common import success_response
 from app.schemas.insight import (
     InsightReviewRequest,
+    InsightTargetKbRequest,
     InsightListResponse,
     InsightExtractionStats,
 )
@@ -17,6 +17,8 @@ from app.services.insight_service import (
     list_insights,
     get_insight,
     review_insight,
+    update_insight_target_kb,
+    delete_insight,
     extract_insights,
 )
 
@@ -68,15 +70,28 @@ async def review_insight_api(
     return success_response(InsightResponse.model_validate(insight).model_dump())
 
 
+@router.put("/insights/{insight_id}/target-kb")
+async def update_insight_target_kb_api(
+    insight_id: int,
+    req: InsightTargetKbRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """修改 insight 的目标知识库。已通过的会同步迁移 chunk。"""
+    insight = await update_insight_target_kb(db, insight_id, req.target_kb_id)
+    await db.commit()
+    await db.refresh(insight)
+    from app.schemas.insight import InsightResponse
+    return success_response(InsightResponse.model_validate(insight).model_dump())
+
+
 @router.delete("/insights/{insight_id}")
 async def delete_insight_api(insight_id: int, db: AsyncSession = Depends(get_db)):
-    """永久删除 insight。"""
-    result = await db.execute(sa_delete(KbInsight).where(KbInsight.id == insight_id))
-    if result.rowcount == 0:
+    """永久删除 insight，同时清理关联 chunk（已通过）和空文档。"""
+    result = await delete_insight(db, insight_id)
+    if result is None:
         from app.core.exceptions import DocNotFoundError
         raise DocNotFoundError(message="知识点不存在", detail=f"insight_id={insight_id}")
     await db.commit()
-    logger.info(f"insight_deleted id={insight_id}")
     return success_response({"deleted": insight_id})
 
 

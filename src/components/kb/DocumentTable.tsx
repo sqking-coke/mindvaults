@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
+import { deleteDocument as apiDeleteDocument } from "@/services/ragService";
 import type { DocumentRecord } from "@/types/api";
 import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import {
@@ -25,13 +26,27 @@ interface DocumentTableProps {
 }
 
 export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh }: DocumentTableProps) {
-  const { 
-    documents, 
-    activeKbId, 
-    reindexDocument, 
+  const {
+    documents,
+    activeKbId,
+    knowledgeBases,
+    showToast,
+    reindexDocument,
     toggleDocumentStatus,
-    deleteDocument 
+    deleteDocument,
   } = usemindvaults();
+
+  const kbNameById = (kbId: string) => knowledgeBases.find(kb => String(kb.id) === kbId)?.name || "—";
+
+  const handleDeleteDoc = async (docId: string) => {
+    try {
+      await apiDeleteDocument(Number(docId));
+      showToast("文档已删除", "success");
+    } catch {
+      showToast("删除失败", "error");
+    }
+    onRefresh?.();
+  };
 
   // Filter docs for active KB — ops 模式优先使用外部传入的列表
   const activeKbDocs = opsDocuments
@@ -123,7 +138,8 @@ export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh
             <thead>
               <tr className="bg-slate-50 border-b border-slate-150 text-slate-500 font-semibold select-none">
                 <th className="px-6 py-3.5">文档名称</th>
-                <th className="px-6 py-3.5">物理大小</th>
+                {opsMode && <th className="px-6 py-3.5">所属知识库</th>}
+                <th className="px-6 py-3.5">来源</th>
                 <th className="px-6 py-3.5">{opsMode ? "切片数量" : "解析字符数"}</th>
                 <th className="px-6 py-3.5">当前状态</th>
                 <th className="px-6 py-3.5">上传时间</th>
@@ -178,7 +194,20 @@ export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-slate-500 font-mono select-all">{doc.size}</td>
+                      {opsMode && (
+                        <td className="px-6 py-4 text-slate-500 max-w-[120px] truncate" title={kbNameById(doc.kbId)}>
+                          {kbNameById(doc.kbId)}
+                        </td>
+                      )}
+                      <td className="px-6 py-4 text-slate-500">
+                        {doc.source === "insight" ? (
+                          <span className="text-[11px] bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-2 py-0.5 font-medium">知识沉淀</span>
+                        ) : doc.source === "obsidian" ? (
+                          <span className="text-[11px] bg-violet-50 text-violet-600 border border-violet-200 rounded-full px-2 py-0.5 font-medium">Obsidian</span>
+                        ) : (
+                          <span className="text-[11px] bg-slate-50 text-slate-500 border border-slate-200 rounded-full px-2 py-0.5 font-medium">{doc.type || "文档"}</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-slate-600 font-mono font-medium">
                         {doc.status === "success" || doc.status === "disabled" 
                           ? (opsMode ? `${doc.chunkCount} 个切片` : `${doc.chars.toLocaleString()} 字符`) 
@@ -304,7 +333,7 @@ export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh
                     {/* Collapsible Section for ChunkList — available in both normal and ops modes */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={6} className="px-6 py-4 bg-slate-50/20 border-t border-b border-slate-150">
+                        <td colSpan={opsMode ? 7 : 6} className="px-6 py-4 bg-slate-50/20 border-t border-b border-slate-150">
                           <ChunkList 
                             docId={doc.id} 
                             docName={doc.name} 
@@ -362,7 +391,13 @@ export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh
       <ConfirmDialog
         open={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
-        onConfirm={() => deleteDocument(deleteConfirm!.id)}
+        onConfirm={() => {
+          if (opsMode) {
+            handleDeleteDoc(deleteConfirm!.id);
+          } else {
+            deleteDocument(deleteConfirm!.id);
+          }
+        }}
         title="确认删除文档"
         message={<>将永久删除 <b className="text-slate-700">{deleteConfirm?.name}</b> 及其所有切片数据，删除后不可恢复。</>}
       />

@@ -20,6 +20,11 @@ class InsightSaveRequest(BaseModel):
     kb_id: int = Field(..., description="目标知识库 ID")
 
 
+class InsightTargetKbRequest(BaseModel):
+    """修改 insight 的目标知识库。"""
+    target_kb_id: int = Field(..., description="目标知识库 ID")
+
+
 # ── 响应 ────────────────────────────────────────────────────
 
 class InsightResponse(BaseModel):

@@ -123,6 +123,7 @@ export interface DocumentRecord {
   kbId: string;
   name: string;
   size: string;
+  source?: string;   // "insight" | "obsidian" | "upload" 等
   chars: number;
   chunkCount: number;
   status: "uploading" | "parsing" | "success" | "failed" | "disabled";
@@ -196,6 +197,7 @@ export interface SSETokenEvent {
 export interface SSEDoneEvent {
   ref_chunks: RefChunk[];
   round_key: string;
+  qa_record_id: number;
 }
 
 /** SSE event: error */
@@ -420,7 +422,7 @@ export interface Insight {
   target_kb_id: number | null;
   title: string;
   content: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "processing";
   confidence: number;
   tags: string[] | null;
   source_qa_ids: number[];
