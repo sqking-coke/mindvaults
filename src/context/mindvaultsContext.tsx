@@ -173,9 +173,12 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         // 加载文档（默认取第一个 KB，用于知识中心展示）
         const kbId = kbs.length > 0 ? kbs[0].id : 1;
+        if (isDemo) {
+          await fetch("/api/v1/admin/reset-demo", { method: "POST" }).catch(() => {});
+        }
         const [docResult, sessions] = await Promise.all([
           fetchDocuments(1, 50, kbId),
-          isDemo ? Promise.resolve([] as Awaited<ReturnType<typeof fetchSessions>>) : fetchSessions(),
+          fetchSessions(),
         ]);
         if (cancelled) return;
 

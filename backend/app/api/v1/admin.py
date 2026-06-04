@@ -21,3 +21,16 @@ async def seed_demo_data(body: SeedRequest = SeedRequest()):
         embedding_api_key=body.embedding_api_key or None,
     )
     return success_response({"seeded": True})
+
+
+@router.post("/reset-demo")
+async def reset_demo():
+    """清空 demo 会话和 QA 记录，保留知识库和文档。"""
+    from sqlalchemy import text
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("DELETE FROM kb_qa_records"))
+        await db.execute(text("DELETE FROM kb_sessions"))
+        await db.commit()
+    return success_response({"reset": True})
