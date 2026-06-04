@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import {
   Send,
+  Search,
+  Check,
   Terminal,
-  Database
 } from "lucide-react";
 
 interface ChatInputAreaProps {
@@ -44,9 +45,6 @@ export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
     }
   };
 
-  const selectedKb = knowledgeBases.find(kb => String(kb.id) === activeKbId);
-  const isAuto = !activeKbId || activeKbId === "0";
-
   return (
     <footer className="p-4 md:p-6 border-t border-slate-200 bg-white select-none z-10 shrink-0">
       <div className="max-w-3xl mx-auto space-y-2.5">
@@ -64,39 +62,18 @@ export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
           />
 
           <div className="flex items-center justify-between px-4 pb-2 shrink-0 border-t border-slate-150 pt-2.5 bg-slate-50/50">
-            {/* Utilities shortcut bar */}
-            <div className="flex items-center gap-1.5">
-              {/* KB selector dropdown */}
-              <div className="relative flex items-center gap-1.5">
-                <Database className="h-3.5 w-3.5 text-indigo-400" />
-                <select
-                  value={activeKbId || "0"}
-                  onChange={(e) => setActiveKbId(e.target.value === "0" ? null : e.target.value)}
-                  className="text-[11px] font-semibold bg-transparent border-0 text-slate-600 hover:text-indigo-600 cursor-pointer focus:outline-none focus:ring-0 appearance-none pr-4 bg-right bg-no-repeat"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E")`,
-                    backgroundPosition: "right center",
-                  }}
-                >
-                  <option value="0">自动（系统判断）</option>
-                  {knowledgeBases.map((kb) => (
-                    <option key={kb.id} value={String(kb.id)}>
-                      {kb.name}
-                    </option>
-                  ))}
-                </select>
-                {!isAuto && selectedKb && (
-                  <span className="text-[10px] text-slate-400 hidden sm:inline">
-                    ({selectedKb.doc_count} 篇文档)
-                  </span>
-                )}
-              </div>
-
-              <div className="h-3 w-[1px] bg-slate-200 mx-1 hidden sm:block" />
+            <div className="flex items-center gap-2">
+              {/* Scope selector with floating panel */}
+              <KbScopeSelector
+                knowledgeBases={knowledgeBases}
+                activeKbId={activeKbId}
+                setActiveKbId={setActiveKbId}
+                isGenerating={isGenerating}
+              />
 
               <span className="text-[10px] text-slate-400 hidden sm:inline-flex items-center gap-1">
                 <Terminal className="h-3 w-3 text-indigo-400" />
-                <span>按 Enter 发送 / Shift+Enter 换行</span>
+                按 Enter 发送 / Shift+Enter 换行
               </span>
             </div>
 
@@ -120,5 +97,183 @@ export default function ChatInputArea({ input, setInput }: ChatInputAreaProps) {
         </p>
       </div>
     </footer>
+  );
+}
+
+// ── KB Scope Selector (Scheme C: Floating Panel) ──
+
+interface KbScopeSelectorProps {
+  knowledgeBases: { id: number; name: string; doc_count: number }[];
+  activeKbId: string | null;
+  setActiveKbId: (id: string | null) => void;
+  isGenerating: boolean;
+}
+
+function KbScopeSelector({
+  knowledgeBases,
+  activeKbId,
+  setActiveKbId,
+  isGenerating,
+}: KbScopeSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const [panelPos, setPanelPos] = useState({ bottom: 0, left: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
+  const openPanel = () => {
+    if (isGenerating) return;
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPanelPos({ bottom: window.innerHeight - rect.top + 6, left: rect.left });
+    }
+    setOpen(true);
+  };
+
+  const isAuto = !activeKbId;
+  const isAll = activeKbId === "0";
+  const selectedKb = knowledgeBases.find((kb) => String(kb.id) === activeKbId);
+
+  const currentLabel = isAuto
+    ? "自动（智能路由）"
+    : isAll
+      ? "全库搜索"
+      : selectedKb?.name || "自动（智能路由）";
+
+  return (
+    <div className="relative" ref={containerRef}>
+      {/* Trigger Button */}
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openPanel())}
+        disabled={isGenerating}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 hover:text-slate-800 transition-colors disabled:opacity-50"
+      >
+        <Search className="h-3 w-3 text-indigo-400 shrink-0" />
+        <span className="truncate max-w-[140px]">{currentLabel}</span>
+        <svg
+          className={`h-2.5 w-2.5 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+          viewBox="0 0 8 5"
+          fill="currentColor"
+        >
+          <path d="M0 0l4 5 4-5z" />
+        </svg>
+      </button>
+
+      {/* Floating Panel — fixed positioning to escape overflow */}
+      {open && (
+        <div
+          className="fixed bg-white border border-slate-200 rounded-xl shadow-xl py-1 w-[190px] z-[9999]"
+          style={{ bottom: panelPos.bottom, left: panelPos.left }}
+        >
+
+          <div className="max-h-[180px] overflow-y-auto">
+            {knowledgeBases.length === 0 ? (
+              <div className="px-3 py-2 text-[11px] text-slate-400">暂无知识库</div>
+            ) : (
+              knowledgeBases.map((kb) => (
+                <KbScopeItem
+                  key={kb.id}
+                  label={kb.name}
+                  description={`${kb.doc_count} 篇文档`}
+                  selected={activeKbId === String(kb.id)}
+                  onClick={() => {
+                    setActiveKbId(String(kb.id));
+                    setOpen(false);
+                  }}
+                />
+              ))
+            )}
+          </div>
+
+          <div className="mx-3 my-1 border-t border-slate-100" />
+
+          <KbScopeItem
+            label="全库搜索"
+            description="跨所有知识库检索"
+            selected={isAll}
+            onClick={() => {
+              setActiveKbId("0");
+              setOpen(false);
+            }}
+          />
+          <KbScopeItem
+            label="自动（智能路由）"
+            description="系统自动选择最佳知识库"
+            selected={isAuto}
+            onClick={() => {
+              setActiveKbId(null);
+              setOpen(false);
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KbScopeItem({
+  label,
+  description,
+  selected,
+  onClick,
+}: {
+  label: string;
+  description: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+        selected ? "bg-indigo-50" : "hover:bg-slate-50"
+      }`}
+    >
+      {/* Radio indicator */}
+      <span
+        className={`flex-shrink-0 w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center transition-colors ${
+          selected ? "border-indigo-500" : "border-slate-300"
+        }`}
+      >
+        {selected && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />}
+      </span>
+
+      <div className="flex-1 min-w-0">
+        <div
+          className={`text-xs font-medium truncate ${
+            selected ? "text-indigo-700" : "text-slate-700"
+          }`}
+        >
+          {label}
+        </div>
+        <div className="text-[10px] text-slate-400 truncate">{description}</div>
+      </div>
+
+      {selected && <Check className="h-3 w-3 text-indigo-500 shrink-0" />}
+    </button>
   );
 }

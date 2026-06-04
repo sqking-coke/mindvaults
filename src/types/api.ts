@@ -12,6 +12,7 @@ export interface RefChunk {
   content: string;
   similarity: number; // 0~1
   page?: number;
+  result_type?: string; // "chunk" | "insight" — 来源类型
 }
 
 /** 前端引用溯源（渲染用，index 为前端计算） */
@@ -22,6 +23,7 @@ export interface Citation {
   snippet: string;
   score: number;
   page?: number;
+  result_type?: string; // "chunk" | "insight" — 来源类型
 }
 
 /** 聊天消息 */
@@ -321,11 +323,12 @@ export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 export function refChunkToCitation(chunk: RefChunk, index: number): Citation {
   return {
     id: `cit-${chunk.chunk_id}`,
-    index,
+    index: index + 1,  // 1-based，对齐 LLM 的 [1] [2] 引用格式
     docName: chunk.doc_name,
     snippet: chunk.content,
     score: chunk.similarity,
     page: chunk.page,
+    result_type: chunk.result_type || "chunk",
   };
 }
 
@@ -347,6 +350,14 @@ export interface SystemConfig {
   embedding_base_url: string;
   embedding_model: string;
   embedding_api_key: string;
+  route_centroid_threshold: number;
+  route_centroid_gap: number;
+  route_llm_confidence: number;
+  insight_extraction_enabled: boolean;
+  insight_extraction_schedule: string;
+  insight_min_answer_length: number;
+  insight_dedup_threshold: number;
+  insight_auto_approve_confidence: number;
 }
 
 export interface SystemConfigRequest {
@@ -364,6 +375,14 @@ export interface SystemConfigRequest {
   embedding_base_url?: string;
   embedding_model?: string;
   embedding_api_key?: string;
+  route_centroid_threshold?: number;
+  route_centroid_gap?: number;
+  route_llm_confidence?: number;
+  insight_extraction_enabled?: boolean;
+  insight_extraction_schedule?: string;
+  insight_min_answer_length?: number;
+  insight_dedup_threshold?: number;
+  insight_auto_approve_confidence?: number;
 }
 
 // ==================== Obsidian Vault 导入 API 契约 ====================
@@ -391,4 +410,32 @@ export interface VaultImportResponse {
   failed: number;
   errors: VaultImportError[];
   documents: VaultImportDocument[];
+}
+
+// ==================== 对话知识沉淀 API (#16) ====================
+
+export interface Insight {
+  id: number;
+  kb_id: number;
+  target_kb_id: number | null;
+  title: string;
+  content: string;
+  status: "pending" | "approved" | "rejected";
+  confidence: number;
+  tags: string[] | null;
+  source_qa_ids: number[];
+  source_doc_ids: number[] | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InsightListResponse extends PaginatedData<Insight> {}
+
+export interface InsightExtractionStats {
+  extracted: number;
+  skipped_short: number;
+  skipped_duplicate: number;
+  auto_approved: number;
+  errors: number;
 }

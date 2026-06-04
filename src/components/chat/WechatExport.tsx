@@ -61,7 +61,7 @@ export default function WechatExport({ question, answer, citations, onClose }: W
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
       <div className="w-full max-w-xl flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] border border-slate-200">
-        
+
         {/* Header toolbar */}
         <div className="flex items-center justify-between border-b border-slate-150 px-5 py-4 bg-slate-50">
           <div className="flex items-center gap-2">
@@ -93,13 +93,11 @@ export default function WechatExport({ question, answer, citations, onClose }: W
           <div className="mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             排版预览区域 (微信内实际渲染效果)
           </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden select-text">
-            {/* Render the fully inlined HTML output */}
-            <div 
-              className="p-1"
-              dangerouslySetInnerHTML={{ __html: previewHtml }} 
-            />
-          </div>
+          {/* Render the fully inlined HTML output */}
+          <div
+            className="p-1"
+            dangerouslySetInnerHTML={{ __html: previewHtml }}
+          />
         </div>
 
         {/* Action footer */}

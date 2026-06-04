@@ -3,7 +3,7 @@ from loguru import logger
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppException
+from app.core.exceptions import KbNotFoundError
 from app.models.knowledge_base import KnowledgeBase
 from app.models.config import KbConfig
 from app.models.document import KbDocument
@@ -11,11 +11,6 @@ from app.models.session import KbSession
 from app.schemas.knowledge_base import (
     KbCreateRequest, KbUpdateRequest, KbConfigRequest,
 )
-
-
-class KbNotFoundError(AppException):
-    def __init__(self, kb_id: int):
-        super().__init__(code=6001, message=f"知识库不存在: {kb_id}", status_code=404)
 
 
 async def create_kb(db: AsyncSession, req: KbCreateRequest) -> KnowledgeBase:
@@ -33,7 +28,7 @@ async def create_kb(db: AsyncSession, req: KbCreateRequest) -> KnowledgeBase:
 async def get_kb(db: AsyncSession, kb_id: int) -> KnowledgeBase:
     kb = await db.get(KnowledgeBase, kb_id)
     if kb is None:
-        raise KbNotFoundError(kb_id)
+        raise KbNotFoundError(detail=f"kb_id={kb_id}")
     return kb
 
 
@@ -97,11 +92,19 @@ async def update_kb(db: AsyncSession, kb_id: int, req: KbUpdateRequest) -> Knowl
 
 
 async def delete_kb(db: AsyncSession, kb_id: int) -> None:
-    """级联删除 KB → 文档 → 切片 + 会话 → QA 记录，同时清理磁盘文件和 Redis 缓存。"""
+    """级联删除 KB → 文档 → 切片 + 会话 → QA 记录，同时清理磁盘文件和 Redis 缓存。
+
+    系统 KB（id=1 默认知识库 + kb_type='deposition' 沉积库）禁止删除。
+    """
     from pathlib import Path
     from sqlalchemy import delete
+    from app.core.exceptions import AppException
 
     kb = await get_kb(db, kb_id)
+
+    # 系统保护：默认系统库不可删除
+    if kb_id == 1:
+        raise AppException(code=1001, message="默认系统库是系统核心组件，不允许删除", status_code=403)
 
     # 1. 收集待清理的磁盘文件路径
     doc_rows = (

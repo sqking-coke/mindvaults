@@ -54,34 +54,34 @@ export default function KBOpsPanel() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // -- fetch docs with filters --
+  // -- 过滤逻辑（fetch 和 watch 共用） --
+  const applyFilters = useCallback(
+    (docs: DocumentRecord[], totalFromApi: number) => {
+      let filtered = docs;
+      if (statusFilter !== "all") filtered = filtered.filter((d) => d.status === statusFilter);
+      if (search) {
+        const q = search.toLowerCase();
+        filtered = filtered.filter((d) => d.name.toLowerCase().includes(q) || (d.description || "").toLowerCase().includes(q));
+      }
+      setOpsDocs(filtered);
+      setTotalDocs(search ? filtered.length : totalFromApi);
+    },
+    [search, statusFilter],
+  );
+
   const loadDocs = useCallback(async () => {
     setLoading(true);
     try {
       const kbId = kbFilter === "all" ? undefined : Number(kbFilter);
       const result = await fetchDocuments(page, PAGE_SIZE, kbId);
-      // client-side search filter (backend doesn't support text search on doc_name yet)
-      let filtered = result.docs;
-      if (statusFilter !== "all") {
-        filtered = filtered.filter((d) => d.status === statusFilter);
-      }
-      if (search) {
-        const q = search.toLowerCase();
-        filtered = filtered.filter(
-          (d) =>
-            d.name.toLowerCase().includes(q) ||
-            (d.description || "").toLowerCase().includes(q)
-        );
-      }
-      setOpsDocs(filtered);
-      setTotalDocs(search ? filtered.length : result.total);
+      applyFilters(result.docs, result.total);
     } catch {
       setOpsDocs([]);
       setTotalDocs(0);
     } finally {
       setLoading(false);
     }
-  }, [page, kbFilter, search, statusFilter]);
+  }, [page, kbFilter, applyFilters]);
 
   useEffect(() => {
     loadDocs();
@@ -310,7 +310,15 @@ export default function KBOpsPanel() {
       </div>
 
       {/* Document Table */}
-      <DocumentTable opsMode={true} opsDocuments={opsDocs} />
+      <DocumentTable
+        opsMode={true}
+        opsDocuments={opsDocs}
+        onRefresh={() => {
+          loadDocs(); loadStats();
+          setTimeout(() => { loadDocs(); loadStats(); }, 5000);
+          setTimeout(() => { loadDocs(); loadStats(); }, 10000);
+        }}
+      />
 
       {/* Pagination */}
       {totalPages > 1 && (

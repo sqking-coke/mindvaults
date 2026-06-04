@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import KbChunk
@@ -75,35 +75,17 @@ async def ingest_document(
 
         # 解析 embedding 配置：传参 > SystemConfig > env
         from app.models.system_config import SystemConfig
+        from app.services.embedding_service import resolve_embedding_config
+
         sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
-
-        emb_provider = (sys_cfg.embedding_provider if sys_cfg and sys_cfg.embedding_provider else "same_as_llm")
-        sys_llm_key = sys_cfg.llm_api_key if sys_cfg else None
-        sys_llm_url = sys_cfg.llm_base_url if sys_cfg else None
-        sys_emb_key = sys_cfg.embedding_api_key if sys_cfg else None
-        sys_emb_url = sys_cfg.embedding_base_url if sys_cfg else None
-
-        if emb_provider == "same_as_llm":
-            emb_api_key = embedding_api_key or settings.EMBEDDING_API_KEY or sys_llm_key
-            emb_base_url = settings.EMBEDDING_BASE_URL or sys_llm_url
-        elif emb_provider == "ollama":
-            emb_api_key = None  # Ollama 不需要 key
-            emb_base_url = sys_emb_url or settings.EMBEDDING_BASE_URL
-        else:
-            # openai / siliconflow / deepseek 等均走 OpenAI 兼容 API
-            emb_api_key = embedding_api_key or sys_emb_key or settings.EMBEDDING_API_KEY
-            emb_base_url = sys_emb_url or settings.EMBEDDING_BASE_URL
-
-        emb_provider_for_call = "ollama" if emb_provider == "ollama" else "openai"
-        emb_model = (sys_cfg.embedding_model if sys_cfg and sys_cfg.embedding_model else settings.EMBEDDING_MODEL)
+        emb_cfg = await resolve_embedding_config(sys_cfg, api_key_override=embedding_api_key)
 
         try:
             embeddings = await embed_batch(
                 chunk_texts,
-                api_key=emb_api_key,
-                base_url=emb_base_url,
-                provider=emb_provider_for_call,
-                model=emb_model,
+                api_key=emb_cfg.api_key,
+                base_url=emb_cfg.base_url,
+                provider=emb_cfg.provider,
             )
         except Exception as exc:
             logger.error(f"embedding_batch_failed doc_id={doc_id} chunks={len(chunk_texts)} error=\"{exc}\"")
@@ -124,12 +106,30 @@ async def ingest_document(
 
         await db.flush()
 
-        # 5. 更新文档状态：完成
-        doc.chunk_count = len(chunks_with_pages)
+        # 5. 从数据库统计实际切片数，更新文档状态为完成
+        actual_count = (await db.execute(
+            select(func.count()).select_from(KbChunk).where(KbChunk.document_id == doc_id)
+        )).scalar_one()
+        logger.info(
+            f"ingestion_chunk_count doc_id={doc_id} memory={len(chunks_with_pages)} db={actual_count}"
+        )
+        if actual_count == 0:
+            logger.error(
+                f"ingestion_chunk_count_zero doc_id={doc_id} memory={len(chunks_with_pages)} "
+                f"this means flush didn't persist chunks — will retry on next reindex"
+            )
+        doc.chunk_count = actual_count
         doc.status = DOC_STATUS_COMPLETED
-        doc.status_detail = {"phase": "done", "chunks": len(chunks_with_pages), "finished_at": datetime.now(timezone.utc).isoformat()}
+        doc.status_detail = {"phase": "done", "chunks": actual_count, "finished_at": datetime.now(timezone.utc).isoformat()}
         await db.commit()
-        log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=len(chunks_with_pages))
+        log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=actual_count)
+
+        # 异步更新质心向量（KB 智能路由 Layer 1 依赖）
+        try:
+            from app.services.retrieval_service import update_centroid
+            await update_centroid(db, doc.kb_id)
+        except Exception:
+            logger.warning(f"centroid_update_after_ingestion_failed kb_id={doc.kb_id}")
 
     except Exception as exc:
         logger.error(f"doc_ingestion_failed doc_id={doc_id} error=\"{exc}\"")

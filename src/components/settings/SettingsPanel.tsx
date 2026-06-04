@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
-import { Settings, Cpu, Sliders, ArrowLeft, Braces } from "lucide-react";
+import { Settings, Cpu, Sliders, ArrowLeft, Braces, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 export default function SettingsPanel() {
@@ -45,6 +45,13 @@ export default function SettingsPanel() {
   const [embApiKey, setEmbApiKey] = useState("");
   const [embCustom, setEmbCustom] = useState(false); // 是否展开自定义配置
 
+  // 对话知识沉淀配置
+  const [insightEnabled, setInsightEnabled] = useState(true);
+  const [insightSchedule, setInsightSchedule] = useState("02:00");
+  const [insightMinAnswerLen, setInsightMinAnswerLen] = useState(200);
+  const [insightDedupThreshold, setInsightDedupThreshold] = useState(0.92);
+  const [insightAutoApprove, setInsightAutoApprove] = useState(0.95);
+
   // Init from systemConfig
   useEffect(() => {
     if (!systemConfig) {
@@ -77,6 +84,14 @@ export default function SettingsPanel() {
     setEmbModel(systemConfig.embedding_model || "");
     setEmbApiKey(systemConfig.embedding_api_key || "");
     setEmbCustom(savedEmb !== "same_as_llm");
+
+    // 对话知识沉淀配置
+    setInsightEnabled(systemConfig.insight_extraction_enabled ?? true);
+    setInsightSchedule(systemConfig.insight_extraction_schedule || "02:00");
+    setInsightMinAnswerLen(systemConfig.insight_min_answer_length ?? 200);
+    setInsightDedupThreshold(systemConfig.insight_dedup_threshold ?? 0.92);
+    setInsightAutoApprove(systemConfig.insight_auto_approve_confidence ?? 0.95);
+
     setLoaded(true);
   }, [systemConfig, loaded, loadSystemConfig]);
 
@@ -106,6 +121,11 @@ export default function SettingsPanel() {
       top_k: topK,
       similarity_threshold: similarityThreshold,
       ...embedPayload,
+      insight_extraction_enabled: insightEnabled,
+      insight_extraction_schedule: insightSchedule,
+      insight_min_answer_length: insightMinAnswerLen,
+      insight_dedup_threshold: insightDedupThreshold,
+      insight_auto_approve_confidence: insightAutoApprove,
     });
     setIsSaving(false);
     if (success) {
@@ -465,6 +485,111 @@ export default function SettingsPanel() {
 
             <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-[10px] text-slate-500 leading-relaxed">
               ⚠️ 修改切片参数仅对<strong>新上传</strong>的文档生效。已有文档需手动重索引。
+            </div>
+          </div>
+        </div>
+
+        {/* Section 4: 对话知识沉淀 */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-amber-500" />
+            <h2 className="text-sm font-bold text-slate-700">对话知识沉淀</h2>
+          </div>
+          <div className="p-6 space-y-5">
+            {/* Enable toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-700">启用自动提炼</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">每日定时从对话中提炼知识点到审核中心</p>
+              </div>
+              <button
+                onClick={() => setInsightEnabled(!insightEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${
+                  insightEnabled ? "bg-amber-500" : "bg-slate-300"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                    insightEnabled ? "translate-x-5" : "translate-x-0"
+                  }`} />
+              </button>
+            </div>
+
+            <div className="border-t border-slate-100" />
+
+            {/* Schedule + Answer Length */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">定时触发时间</label>
+                <input
+                  type="time"
+                  value={insightSchedule}
+                  onChange={(e) => setInsightSchedule(e.target.value)}
+                  disabled={!insightEnabled}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200 disabled:opacity-40"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">最小答案长度 (字符)</label>
+                <input
+                  type="number"
+                  value={insightMinAnswerLen}
+                  onChange={(e) => setInsightMinAnswerLen(Number(e.target.value))}
+                  disabled={!insightEnabled}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200 disabled:opacity-40"
+                />
+              </div>
+            </div>
+
+            {/* Dedup Threshold */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">向量去重阈值</label>
+                <span className="text-xs font-bold font-mono text-amber-600 bg-amber-50 px-2 py-0.5 rounded-lg">{insightDedupThreshold.toFixed(2)}</span>
+              </div>
+              <input
+                type="range" min="0.8" max="1.0" step="0.01"
+                value={insightDedupThreshold}
+                onChange={(e) => setInsightDedupThreshold(parseFloat(e.target.value))}
+                disabled={!insightEnabled}
+                className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-amber-500 bg-slate-200 disabled:opacity-40"
+                style={{
+                  background: insightEnabled
+                    ? `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((insightDedupThreshold - 0.8) / 0.2) * 100}%, #e2e8f0 ${((insightDedupThreshold - 0.8) / 0.2) * 100}%, #e2e8f0 100%)`
+                    : ""
+                }}
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 font-medium">
+                <span>宽松 0.80</span>
+                <span>严格 1.00</span>
+              </div>
+            </div>
+
+            {/* Auto Approve Threshold */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">自动通过置信度阈值</label>
+                <span className="text-xs font-bold font-mono text-amber-600 bg-amber-50 px-2 py-0.5 rounded-lg">{insightAutoApprove.toFixed(2)}</span>
+              </div>
+              <input
+                type="range" min="0.8" max="1.0" step="0.01"
+                value={insightAutoApprove}
+                onChange={(e) => setInsightAutoApprove(parseFloat(e.target.value))}
+                disabled={!insightEnabled}
+                className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-amber-500 bg-slate-200 disabled:opacity-40"
+                style={{
+                  background: insightEnabled
+                    ? `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((insightAutoApprove - 0.8) / 0.2) * 100}%, #e2e8f0 ${((insightAutoApprove - 0.8) / 0.2) * 100}%, #e2e8f0 100%)`
+                    : ""
+                }}
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 font-medium">
+                <span>宽松 0.80</span>
+                <span>严格 1.00</span>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                LLM 提炼置信度 ≥ 此值 → 自动通过审核，无需人工确认。设为 1.00 表示全部需要人工审核。
+              </p>
             </div>
           </div>
         </div>

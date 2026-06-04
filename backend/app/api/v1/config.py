@@ -56,6 +56,14 @@ async def get_system_config(db: AsyncSession = Depends(get_db)):
         "system_prompt": system_prompt,
         "embedding_provider": emb_provider, "embedding_base_url": emb_url,
         "embedding_model": emb_model, "embedding_api_key": emb_masked_key,
+        "route_centroid_threshold": cfg.route_centroid_threshold,
+        "route_centroid_gap": cfg.route_centroid_gap,
+        "route_llm_confidence": cfg.route_llm_confidence,
+        "insight_extraction_enabled": cfg.insight_extraction_enabled,
+        "insight_extraction_schedule": cfg.insight_extraction_schedule,
+        "insight_min_answer_length": cfg.insight_min_answer_length,
+        "insight_dedup_threshold": cfg.insight_dedup_threshold,
+        "insight_auto_approve_confidence": cfg.insight_auto_approve_confidence,
     })
 
 
@@ -93,6 +101,26 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
         elif not k:
             cfg.embedding_api_key = ""
 
+    # 路由阈值
+    if payload.route_centroid_threshold is not None:
+        cfg.route_centroid_threshold = payload.route_centroid_threshold
+    if payload.route_centroid_gap is not None:
+        cfg.route_centroid_gap = payload.route_centroid_gap
+    if payload.route_llm_confidence is not None:
+        cfg.route_llm_confidence = payload.route_llm_confidence
+
+    # 对话知识沉淀配置
+    if payload.insight_extraction_enabled is not None:
+        cfg.insight_extraction_enabled = payload.insight_extraction_enabled
+    if payload.insight_extraction_schedule is not None:
+        cfg.insight_extraction_schedule = payload.insight_extraction_schedule.strip()
+    if payload.insight_min_answer_length is not None:
+        cfg.insight_min_answer_length = payload.insight_min_answer_length
+    if payload.insight_dedup_threshold is not None:
+        cfg.insight_dedup_threshold = payload.insight_dedup_threshold
+    if payload.insight_auto_approve_confidence is not None:
+        cfg.insight_auto_approve_confidence = payload.insight_auto_approve_confidence
+
     await db.commit()
     await db.refresh(cfg)
 
@@ -112,6 +140,14 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
         "embedding_base_url": cfg.embedding_base_url or "",
         "embedding_model": cfg.embedding_model or "",
         "embedding_api_key": emb_masked_key,
+        "route_centroid_threshold": cfg.route_centroid_threshold,
+        "route_centroid_gap": cfg.route_centroid_gap,
+        "route_llm_confidence": cfg.route_llm_confidence,
+        "insight_extraction_enabled": cfg.insight_extraction_enabled,
+        "insight_extraction_schedule": cfg.insight_extraction_schedule,
+        "insight_min_answer_length": cfg.insight_min_answer_length,
+        "insight_dedup_threshold": cfg.insight_dedup_threshold,
+        "insight_auto_approve_confidence": cfg.insight_auto_approve_confidence,
     })
 
 

@@ -124,7 +124,7 @@ export default function OverviewCards({ stats, totalUniqueQuestions, isLoading }
               {card.title}
             </span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-black text-slate-800 font-mono tracking-tight">
+              <span className="text-2xl font-black text-slate-800 block font-mono">
                 {card.value.toLocaleString()}
               </span>
             </div>

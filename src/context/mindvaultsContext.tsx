@@ -13,7 +13,7 @@ import type {
   VaultImportResponse,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
-import { formatTime } from "@/utils/date";
+import { formatTime, formatDateTime } from "@/utils/date";
 import {
   getDefaultKnowledgeBase,
   fetchDocuments,
@@ -75,11 +75,11 @@ interface mindvaultsContextType {
   loadSystemConfig: () => Promise<void>;
   updateSystemConfig: (config: SystemConfigRequest) => Promise<boolean>;
   loadOllamaModels: () => Promise<void>;
-  toast: { message: string; type: "success" | "error" | "warning" } | null;
-  showToast: (message: string, type?: "success" | "error" | "warning") => void;
+  toast: { message: string; type: "success" | "error" } | null;
+  showToast: (message: string, type?: "success" | "error") => void;
   configRequiredDialog: boolean;
+  configRequiredMessage: string;
   dismissConfigRequiredDialog: () => void;
-  isDemo: boolean;
 }
 
 const mindvaultsContext = createContext<mindvaultsContextType | undefined>(undefined);
@@ -104,18 +104,16 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
 
   // --- Toast notification ---
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "warning" } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   // --- Config required dialog ---
   const [configRequiredDialog, setConfigRequiredDialog] = useState(false);
+  const [configRequiredMessage, setConfigRequiredMessage] = useState("");
   const dismissConfigRequiredDialog = useCallback(() => setConfigRequiredDialog(false), []);
-  const showToast = useCallback((message: string, type: "success" | "error" | "warning" = "success") => {
+  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
-
-  // Demo 分支直接写死，不依赖运行时 API 检测
-  const [isDemo, setIsDemo] = useState(true);
 
   // --- Dynamic LLM and System configuration ---
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
@@ -165,25 +163,15 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         if (kbs.length > 0) {
           setKnowledgeBases(kbs);
-          // 恢复上次选中的 KB（localStorage），否则不自动选中
-          const savedKbId = localStorage.getItem("mv_active_kb_id");
-          if (savedKbId && kbs.some(k => String(k.id) === savedKbId)) {
-            setActiveKbId(savedKbId);
-          }
         } else {
-          const defaultKb = getDefaultKnowledgeBase();
-          setKnowledgeBases([defaultKb]);
-          setActiveKbId(String(defaultKb.id));
+          setKnowledgeBases([getDefaultKnowledgeBase()]);
         }
 
-        // 加载文档（优先用恢复的 KB，否则默认第一个）
-        const restoredKbId = localStorage.getItem("mv_active_kb_id");
-        const kbId = (restoredKbId && kbs.some(k => String(k.id) === restoredKbId))
-          ? Number(restoredKbId)
-          : (kbs.length > 0 ? kbs[0].id : 1);
+        // 加载文档（默认取第一个 KB，用于知识中心展示）
+        const kbId = kbs.length > 0 ? kbs[0].id : 1;
         const [docResult, sessions] = await Promise.all([
           fetchDocuments(1, 50, kbId),
-          isDemo ? Promise.resolve([] as Awaited<ReturnType<typeof fetchSessions>>) : fetchSessions(),
+          fetchSessions(),
         ]);
         if (cancelled) return;
 
@@ -200,10 +188,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           // 不自动选中历史对话，进入 /chat 默认展示新建对话欢迎页
         }
       } catch {
-        // backend unavailable — 用默认 KB 兜底
-        const defaultKb = getDefaultKnowledgeBase();
-        setKnowledgeBases([defaultKb]);
-        setActiveKbId(String(defaultKb.id));
+        // backend unavailable — 用默认 KB 兜底，不改变 activeKbId（保持自动模式）
+        setKnowledgeBases([getDefaultKnowledgeBase()]);
       } finally {
         if (!cancelled) setIsKbLoading(false);
       }
@@ -319,15 +305,12 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
     setConversations((prev) => [newConv, ...prev]);
     setActiveConversationId(id);
+    setActiveKbId(null);  // 新对话默认「自动」模式
     return id;
   }, []);
 
   const deleteConversation = useCallback(
     (id: string) => {
-      // 空会话（无消息）仅存在于前端，跳过远端删除
-      const conv = conversations.find((c) => c.id === id);
-      const needsBackendDelete = conv && conv.messages.length > 0;
-
       setConversations((prev) => {
         const remaining = prev.filter((c) => c.id !== id);
         if (activeConversationId === id) {
@@ -336,9 +319,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return remaining;
       });
 
-      if (!needsBackendDelete) return;
-
-      // 同步删除后端数据
+      // 始终同步删除后端数据（消息是懒加载的，不能靠 messages.length 判断）
       apiDeleteSession(id)
         .then(() => showToast("对话已删除"))
         .catch((err) => {
@@ -346,7 +327,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           showToast("删除失败，请重试", "error");
         });
     },
-    [activeConversationId, conversations],
+    [activeConversationId],
   );
 
   const renameConversation = useCallback((id: string, title: string) => {
@@ -371,6 +352,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         };
         setConversations((prev) => [newConv, ...prev]);
         setActiveConversationId(sessionId);
+        setActiveKbId(null);  // 新对话默认「自动」模式
       }
 
       const timestamp = formatTime();
@@ -416,7 +398,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try {
           for await (const event of streamChat(
             "/api/v1/kb/chat",
-            { question: content, session_id: sessionId, kb_id: activeKbId && activeKbId !== "0" ? Number(activeKbId) : 0 },
+            { question: content, session_id: sessionId, kb_id: activeKbId === "0" ? 0 : (activeKbId ? Number(activeKbId) : undefined) },
             abortController.signal,
           )) {
             if (event.type === "progress") {
@@ -475,20 +457,26 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             } else if (event.type === "error") {
               const errorCode = (event.data as { code?: number }).code;
               const errorMessage = (event.data as { message?: string }).message || "未知错误";
+              const isRouteFallback = (event.data as { route_fallback?: boolean }).route_fallback;
 
               // 友好提示：根据错误码显示引导文案而非冷冰冰的错误
               let displayContent: string;
-              if (errorCode === 4001) {
+              if (isRouteFallback) {
+                // Layer 3 路由未命中 → 显示引导消息（含候选 KB）
+                displayContent = errorMessage;
+              } else if (errorCode === 4001) {
                 displayContent =
                   "📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。";
               } else if (errorCode === 5003) {
-                displayContent = "⚠️ 大模型 API Key 未配置，无法生成回答。\n\n请点击页面弹出的提示框前往系统设置页面配置 API Key。";
+                displayContent = `⚠️ ${errorMessage}\n\n请点击页面弹出的提示框前往系统设置页面检查 API Key 配置。`;
+                setConfigRequiredMessage(errorMessage);
                 setConfigRequiredDialog(true);
               } else if (
                 (errorCode === 5001 || errorCode === 5002) &&
                 /401|403|unauthorized|api.?key|认证|未配置|无效/.test(errorMessage.toLowerCase())
               ) {
-                displayContent = "⚠️ API Key 无效或未配置，无法连接模型服务。\n\n请点击页面弹出的提示框前往系统设置页面检查 API Key 配置。";
+                displayContent = `⚠️ ${errorMessage}\n\n请点击页面弹出的提示框前往系统设置页面检查 API Key 配置。`;
+                setConfigRequiredMessage(errorMessage);
                 setConfigRequiredDialog(true);
               } else {
                 displayContent = `⚠️ ${errorMessage}`;
@@ -544,7 +532,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteKnowledgeBase = useCallback(
     async (id: string) => {
-      if (id === "1") return; // 不能删除默认 KB
+      // 系统保护：默认系统库不可删除
+      if (id === "1") return;
       try {
         await apiDeleteKnowledgeBase(Number(id));
         showToast("知识库已删除");
@@ -571,7 +560,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (files.length === 0) return;
 
       // add optimistic entries
-      const now = new Date().toISOString().replace("T", " ").substring(0, 16);
+      const now = formatDateTime(new Date().toISOString());
       const tempDocs: DocumentRecord[] = files.map((f, i) => ({
         id: `doc-temp-${Date.now()}-${i}`,
         kbId,
@@ -821,8 +810,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         toast,
         showToast,
         configRequiredDialog,
+        configRequiredMessage,
         dismissConfigRequiredDialog,
-        isDemo,
       }}
     >
       {children}

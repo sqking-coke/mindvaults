@@ -6,6 +6,7 @@ import DocumentTable from "@/components/kb/DocumentTable";
 import UploadZone from "@/components/kb/UploadZone";
 import RetrievalSandbox from "@/components/kb/RetrievalSandbox";
 import VaultImportDialog from "@/components/kb/VaultImportDialog";
+import SystemKBHome from "@/components/kb/SystemKBHome";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { 
   Database, 
@@ -54,6 +55,10 @@ export default function KBPage() {
             <div className="text-slate-400 text-sm animate-pulse">加载中...</div>
           </div>
         ) : activeKbId && activeKb ? (
+          activeKb.id === 1 ? (
+            /* 系统库专用首页 */
+            <SystemKBHome />
+          ) : (
           <div className="flex-1 flex flex-col h-full overflow-hidden">
             {/* Header with back button */}
             <header className="h-16 border-b border-slate-200 bg-white pl-16 pr-6 md:px-6 flex items-center justify-between shrink-0 select-none">
@@ -159,6 +164,7 @@ export default function KBPage() {
             )}
 
           </div>
+          )
         ) : (
           /* State 2: KB List Overview (No active KB selected) */
           <KBDashboard />

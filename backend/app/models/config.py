@@ -22,6 +22,12 @@ class KbConfig(Base):
     similarity_threshold: Mapped[float] = mapped_column(Float, default=0.35, nullable=False)
     embedding_dim: Mapped[int] = mapped_column(Integer, default=1024, nullable=False)
 
+    # Embedding 配置（迁移 0009 添加）
+    embedding_provider: Mapped[Optional[str]] = mapped_column(String(50), default="same_as_llm")
+    embedding_base_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_api_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

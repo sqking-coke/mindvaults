@@ -13,7 +13,7 @@ import {
   Share2,
   Brain
 } from "lucide-react";
-import { fetchFrequentQuestions } from "@/services/ragService";
+import { fetchFrequentQuestions, saveInsight } from "@/services/ragService";
 import KnowledgeCard from "./KnowledgeCard";
 import WechatExport from "./WechatExport";
 
@@ -22,11 +22,13 @@ interface ChatMessageListProps {
 }
 
 export default function ChatMessageList({ onSelectTemplate }: ChatMessageListProps) {
-  const { 
-    conversations, 
-    activeConversationId, 
-    isGenerating, 
-    setSelectedCitation 
+  const {
+    conversations,
+    activeConversationId,
+    isGenerating,
+    setSelectedCitation,
+    activeKbId,
+    showToast,
   } = usemindvaults();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -44,11 +46,12 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
 
   const [collapsedThinkings, setCollapsedThinkings] = useState<Set<string>>(new Set());
 
-  // 高频问题（Demo 模式不调 API，直接用预设模板）
-  const { isDemo } = usemindvaults();
+  // 已保存到知识库的消息 ID 集合
+  const [savedMessageIds, setSavedMessageIds] = useState<Set<string>>(new Set());
+
+  // 高频问题（Top-3 动态模板）
   const [frequentQuestions, setFrequentQuestions] = useState<Array<{ question: string; count: number }>>([]);
   useEffect(() => {
-    if (isDemo) return; // 演示模式跳过 API 调用
     fetchFrequentQuestions(3)
       .then((data) => setFrequentQuestions(data.items.map((q) => ({ question: q.question, count: q.count }))))
       .catch(() => {});
@@ -66,22 +69,26 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConversation?.messages?.length, lastMessageContentLength]);
 
-  // 预设模板：与种子知识库内容相关
+  // 固定兜底模板（按需补齐到 6 条）
   const fixedTemplates = [
-    { label: "产品架构", text: "mindvaults 的系统架构是怎样的？RAG 检索流水线包含哪些步骤？", icon: "🏗️" },
-    { label: "Python 异步", text: "Python 异步编程的最佳实践是什么？asyncio.gather 和事务管理有哪些注意事项？", icon: "🐍" },
-    { label: "API 设计", text: "RESTful API 接口设计有哪些核心原则？统一错误码应该怎么规划？", icon: "📡" },
+    { label: "系统架构提问", text: "请问 mindvaults 的底层架构是怎么设计的？它是怎么保障私有数据的安全问答的？", icon: "⚡" },
+    { label: "弹性考勤查询", text: "我想知道公司的考勤和假期规定，核心工作时间段是什么时候？年假有几天？", icon: "📅" },
+    { label: "混合向量检索", text: "解释一下 mindvaults 的向量嵌入 Embedding 与重排 Reranking 检索过滤原理。", icon: "🔍" },
+    { label: "研发接口标准", text: "研发团队对于 RESTful API 接口的命名路径、异常响应体以及幂等性设计有什么具体规范要求？", icon: "💻" },
+    { label: "个人原子习惯", text: "在个人工作习惯重建中，如何具体运用原子习惯的四个核心环路，并结合卡片笔记来沉淀认知？", icon: "📝" },
+    { label: "文档导入指南", text: "如何批量导入 PDF、Word 和 Markdown 文档到知识库中？支持哪些文件格式？", icon: "📂" },
   ];
 
-  // 展示模板：动态高频 + 固定兜底，总共 3 条
-  const displayCount = Math.max(0, 3 - frequentQuestions.length);
+  // 混合模板：前 N 条动态（高频 Top1~Top3），不足 6 条用固定模板补齐
+  const dynamicCount = frequentQuestions.length;
+  const fillCount = Math.max(0, 6 - dynamicCount);
   const promptTemplates = [
     ...frequentQuestions.map((q, i) => ({
       label: `🔥 高频提问 Top${i + 1}`,
       text: q.question,
       icon: "📈",
     })),
-    ...fixedTemplates.slice(0, displayCount),
+    ...fixedTemplates.slice(0, fillCount),
   ];
 
   // Helper: Parse message text to find citation numbers like [1] or [2] and render them as interactive tags
@@ -334,6 +341,7 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                               <div className="overflow-hidden pr-1">
                                 <span className="text-[11px] font-semibold text-slate-700 block truncate group-hover:text-indigo-600 transition-colors">
                                   {cit.docName}
+                                  {cit.result_type === "insight" ? " 💡" : ""}
                                 </span>
                                 <span className="text-[9px] text-slate-400 block font-mono">
                                   第 {cit.page || 1} 页 • 相似度 {(cit.score * 100).toFixed(0)}%
@@ -390,6 +398,42 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                             </svg>
                             <span>微信导出</span>
                           </button>
+
+                          {(() => {
+                            const alreadySaved = savedMessageIds.has(msg.id);
+                            return (
+                              <button
+                                onClick={async () => {
+                                  if (alreadySaved) return;
+                                  const kbId = activeKbId ? parseInt(activeKbId) : 1;
+                                  try {
+                                    const msgId = msg.id;
+                                    const qaIdMatch = msgId.match(/msg-assistant-(\d+)/);
+                                    if (qaIdMatch) {
+                                      await saveInsight(parseInt(qaIdMatch[1]), kbId);
+                                      setSavedMessageIds(prev => new Set(prev).add(msg.id));
+                                      showToast("知识点已提交审核", "success");
+                                    } else {
+                                      showToast("无法关联 QA 记录，请通过审核页面手动处理", "error");
+                                    }
+                                  } catch {
+                                    showToast("保存失败，请稍后重试", "error");
+                                  }
+                                }}
+                                disabled={alreadySaved}
+                                className={`flex items-center gap-1 font-medium transition-colors select-none border-none bg-transparent p-0 ${
+                                  alreadySaved
+                                    ? "text-slate-500 cursor-not-allowed"
+                                    : "text-amber-600 hover:text-amber-800 cursor-pointer"
+                                }`}
+                                title={alreadySaved ? "已保存到知识库" : "保存到知识库"}
+                                aria-label={alreadySaved ? "已保存到知识库" : "保存当前回答到知识库"}
+                              >
+                                <span>{alreadySaved ? "✅" : "💾"}</span>
+                                <span>{alreadySaved ? "已保存" : "保存到知识库"}</span>
+                              </button>
+                            );
+                          })()}
                         </>
                       )}
                     </div>

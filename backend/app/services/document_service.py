@@ -135,7 +135,7 @@ async def list_documents(
         .outerjoin(KbChunk, KbChunk.document_id == KbDocument.id)
         .group_by(KbDocument.id)
     )
-    if kb_id is not None:
+    if kb_id is not None and kb_id > 0:
         base_query = base_query.where(KbDocument.kb_id == kb_id)
 
     count_query = select(func.count()).select_from(KbDocument)
@@ -216,6 +216,7 @@ async def hard_delete_document(db: AsyncSession, doc_id: int) -> None:
 
     file_path = row.file_path
     doc_name = row.doc_name
+    kb_id = row.kb_id
 
     # 先删切片，再删文档（chunk FK 有 CASCADE，但显式执行更清晰）
     await db.execute(delete(KbChunk).where(KbChunk.document_id == doc_id))
@@ -227,6 +228,13 @@ async def hard_delete_document(db: AsyncSession, doc_id: int) -> None:
         p = Path(file_path)
         if p.exists():
             p.unlink()
+    except Exception:
+        pass
+
+    # 更新 KB 质心向量（文档数减少）
+    try:
+        from app.services.retrieval_service import update_centroid
+        await update_centroid(db, kb_id)
     except Exception:
         pass
 
@@ -303,14 +311,12 @@ async def reindex_document(db: AsyncSession, doc_id: int) -> ReindexResponse:
     except Exception as exc:
         logger.warning(f"redis_cache_invalidation_failed error=\"{exc}\"")
 
-    # 重置文档状态并调度后台摄入
+    # 重置文档状态，先 commit 再调度后台任务（避免竞态覆盖 chunk_count）
     row.status = DOC_STATUS_PROCESSING
     row.chunk_count = 0
+    await db.commit()
 
     schedule_ingestion(AsyncSessionLocal, row.id, row.doc_type, row.file_path)
-
-    await db.commit()
-    await db.refresh(row)
 
     log_event("doc_reindex_submitted", doc_id=doc_id, file=row.doc_name)
 

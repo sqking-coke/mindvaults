@@ -14,6 +14,7 @@ class RefChunk(BaseModel):
     content: str
     similarity: float
     page: Optional[int] = None
+    result_type: str = "chunk"  # "chunk" | "insight" — 来源类型
 
     model_config = {"from_attributes": True}
 
@@ -23,7 +24,7 @@ class RefChunk(BaseModel):
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=5000)
     session_id: str = Field(..., min_length=1, max_length=36)
-    kb_id: int | None = Field(None, description="知识库 ID，不传则使用会话绑定的 KB")
+    kb_id: int | None = Field(None, description="null=自动路由(三层匹配), 0=全库搜索, N=指定知识库")
 
 
 # --- 响应模型 ---

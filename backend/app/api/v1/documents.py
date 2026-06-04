@@ -72,7 +72,7 @@ async def list_docs(
 
 @router.get("/documents/watch")
 async def watch_docs(
-    kb_id: int = Query(..., description="知识库 ID"),
+    kb_id: int = Query(0, description="知识库 ID，0=全部"),
     timeout: int = Query(60, ge=5, le=300, description="长轮询超时秒数"),
     db: AsyncSession = Depends(get_db),
 ):

@@ -13,7 +13,9 @@ from app.core.database import engine
 from app.core.redis import close_redis
 from app.core.exceptions import (
     AppException,
+    ValidationException,
     app_exception_handler,
+    validation_exception_handler,
     unhandled_exception_handler,
 )
 from app.core.middleware import limiter, request_log_middleware, ip_blacklist_middleware
@@ -41,6 +43,18 @@ async def lifespan(app: FastAPI):
                     embedding_api_key VARCHAR(255),
                     embedding_model VARCHAR(100),
                     system_prompt TEXT,
+                    route_centroid_threshold FLOAT DEFAULT 0.40,
+                    route_centroid_gap FLOAT DEFAULT 0.08,
+                    route_llm_confidence FLOAT DEFAULT 0.60,
+                    insight_extraction_enabled BOOLEAN DEFAULT TRUE,
+                    insight_extraction_schedule VARCHAR(10) DEFAULT '02:00',
+                    insight_min_answer_length INTEGER DEFAULT 200,
+                    insight_dedup_threshold FLOAT DEFAULT 0.92,
+                    insight_auto_approve_confidence FLOAT DEFAULT 0.95,
+                    concept_extraction_enabled BOOLEAN DEFAULT TRUE,
+                    concept_min_chunk_length INTEGER DEFAULT 500,
+                    concept_max_per_round INTEGER DEFAULT 5,
+                    concept_summary_max_length INTEGER DEFAULT 200,
                     updated_at TIMESTAMPTZ DEFAULT now()
                 )
             """))
@@ -74,7 +88,43 @@ async def lifespan(app: FastAPI):
     recovered = await recover_stuck_documents(AsyncSessionLocal)
     if recovered:
         logger.info(f"lifespan_recovered_stuck_documents count={recovered}")
+
+    # 确保系统知识库存在（每次启动自愈）
+    from app.models.knowledge_base import KnowledgeBase
+    from app.models.config import KbConfig
+
+    async with AsyncSessionLocal() as db:
+        try:
+            kb = await db.get(KnowledgeBase, 1)
+            if kb is None:
+                kb = KnowledgeBase(
+                    id=1,
+                    name="默认系统库",
+                    description="系统自动创建的核心知识库，承载文档存储与对话知识沉淀。",
+                    kb_type="general",
+                )
+                db.add(kb)
+                await db.flush()
+                logger.info("lifespan_created_system_kb id=1")
+
+            cfg = await db.get(KbConfig, 1)
+            if cfg is None:
+                cfg = KbConfig(kb_id=1)
+                db.add(cfg)
+                await db.flush()
+        except Exception as exc:
+            logger.warning(f"lifespan_ensure_system_kb_failed error=\"{exc}\"")
+        await db.commit()
+
+    # 启动后台任务调度器
+    from app.services.scheduler import init_scheduler, shutdown_scheduler, scheduler
+    init_scheduler()
+    scheduler.start()
+    logger.info("lifespan_scheduler_started")
+
     yield
+
+    shutdown_scheduler()
     await close_redis()
     await engine.dispose()
     logger.info("mindvaults shut down")
@@ -114,6 +164,7 @@ def create_app() -> FastAPI:
 
     # 全局异常处理器
     app.add_exception_handler(AppException, app_exception_handler)
+    app.add_exception_handler(ValidationException, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

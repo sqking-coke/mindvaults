@@ -5,21 +5,14 @@ import uuid
 from collections.abc import AsyncGenerator
 
 from loguru import logger
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.exceptions import SessionNotFoundError, AppException
+from app.core.exceptions import AppException
 from app.models.qa_record import KbQaRecord
 from app.models.session import KbSession
-from app.schemas.chat import (
-    ChatRequest,
-    ChatHistoryRecord,
-    ChatHistoryResponse,
-    SessionItem,
-    SessionsListResponse,
-    RefChunk,
-)
+from app.schemas.chat import ChatRequest, RefChunk
 from app.services.embedding_service import embed_text
 from app.services.retrieval_service import retrieve_chunks
 from app.services.llm_service import generate_stream
@@ -33,7 +26,7 @@ INTENT_PATTERNS = [
     (["你好", "谢谢", "再见", "帮助", "你是谁"], "chitchat"),
 ]
 
-RAG_SYSTEM_PROMPT = (
+DEFAULT_SYSTEM_PROMPT = (
     "你是一个基于本地知识库的智能问答助手。"
     "请严格根据以下提供的参考文档内容回答用户问题。"
     "如果参考文档中没有相关信息，请明确告知用户，不要编造内容。"
@@ -76,6 +69,19 @@ def _build_context(chunks: list[RefChunk]) -> str:
     return "\n\n".join(parts)
 
 
+class _SafeJsonEncoder(json.JSONEncoder):
+    """防御 JSON 编码器 — 处理 pgvector 可能带入的 numpy 标量类型。"""
+
+    def default(self, o):
+        # numpy.float32 / float64 → Python float
+        if hasattr(o, "item") and callable(o.item):
+            try:
+                return float(o.item())
+            except (TypeError, ValueError):
+                pass
+        return super().default(o)
+
+
 async def _push_thinking(session_id: str, round_key: str, step: dict) -> None:
     """将推理步骤写入 Redis LIST，按轮次隔离（非阻塞，Redis 不可用时静默跳过）。"""
     try:
@@ -83,10 +89,15 @@ async def _push_thinking(session_id: str, round_key: str, step: dict) -> None:
         from app.config import settings
         redis = await get_redis()
         key = f"mv:thinking:{session_id}:{round_key}"
-        await asyncio.wait_for(redis.lpush(key, json.dumps(step)), timeout=2.0)
+        await asyncio.wait_for(
+            redis.lpush(key, json.dumps(step, cls=_SafeJsonEncoder)), timeout=2.0
+        )
         await asyncio.wait_for(redis.expire(key, settings.THINKING_TTL_SECONDS), timeout=2.0)
     except Exception:
-        logger.warning(f"redis_push_thinking_failed session_id={session_id} round_key={round_key} phase={step.get('phase')}")
+        logger.warning(
+            f"redis_push_thinking_failed session_id={session_id} "
+            f"round_key={round_key} phase={step.get('phase')}"
+        )
 
 
 async def chat_stream(
@@ -101,7 +112,9 @@ async def chat_stream(
 
     # — 0. 提前获取配置 —
     from app.models.system_config import SystemConfig
-    from app.services.retrieval_service import get_config
+    from app.services.retrieval_service import get_config_by_kb
+    from app.services.embedding_service import resolve_embedding_config
+    from app.services.kb_router import resolve_kb
 
     sys_cfg = (await db.execute(select(SystemConfig).where(SystemConfig.id == 1))).scalar_one_or_none()
     if sys_cfg is None:
@@ -109,29 +122,12 @@ async def chat_stream(
         db.add(sys_cfg)
         await db.flush()
 
-    kb_cfg = await get_config(db)
-    is_demo = settings.DEMO_MODE
     provider = sys_cfg.llm_provider if sys_cfg.llm_provider is not None else settings.LLM_PROVIDER
     model = sys_cfg.llm_model if sys_cfg.llm_model is not None else settings.LLM_MODEL
     api_key = sys_cfg.llm_api_key if sys_cfg.llm_api_key is not None else settings.LLM_API_KEY
     base_url = sys_cfg.llm_base_url if sys_cfg.llm_base_url is not None else settings.LLM_BASE_URL
-    threshold = kb_cfg.similarity_threshold if kb_cfg.similarity_threshold is not None else 0.5
 
-    emb_provider = sys_cfg.embedding_provider if sys_cfg.embedding_provider else "same_as_llm"
-    emb_model = sys_cfg.embedding_model if sys_cfg and sys_cfg.embedding_model else settings.EMBEDDING_MODEL
-    if emb_provider == "same_as_llm":
-        emb_api_key = settings.EMBEDDING_API_KEY or api_key
-        emb_base_url = settings.EMBEDDING_BASE_URL or base_url
-        emb_provider_for_call = "openai"
-    elif emb_provider == "ollama":
-        emb_api_key = None
-        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
-        emb_provider_for_call = "ollama"
-    else:
-        # openai / siliconflow / deepseek 等均走 OpenAI 兼容 API
-        emb_api_key = sys_cfg.embedding_api_key or settings.EMBEDDING_API_KEY
-        emb_base_url = sys_cfg.embedding_base_url or settings.EMBEDDING_BASE_URL
-        emb_provider_for_call = "openai"
+    emb_cfg = await resolve_embedding_config(sys_cfg)
     provider_label = "Ollama (本地)" if provider == "ollama" else "云端 API"
 
     logger.info(
@@ -152,69 +148,115 @@ async def chat_stream(
         yield ("error", json.dumps({"code": 9001, "message": "数据库查询失败，请稍后重试"}))
         return
 
-    # 确定 kb_id：请求 > 会话 > 默认 0 全库检索
-    kb_id = req.kb_id if req.kb_id is not None else (session.kb_id if session else 0)
+    # — 2. 意图分类 + Embedding —
+    step = {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}
+    await _push_thinking(req.session_id, round_key, step)
+    yield ("progress", json.dumps(step))
 
-    # kb_id=0(全库)时，会话挂第一个可用的 KB
-    session_kb_id = kb_id if kb_id > 0 else None
-    if session_kb_id is None:
-        from app.models.knowledge_base import KnowledgeBase
-        first_kb = (await db.execute(select(KnowledgeBase).order_by(KnowledgeBase.id).limit(1))).scalar_one_or_none()
-        session_kb_id = first_kb.id if first_kb else 1
+    step = {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)}
+    await _push_thinking(req.session_id, round_key, step)
+    yield ("progress", json.dumps(step))
 
+    try:
+        query_embedding = await embed_text(req.question, api_key=emb_cfg.api_key, base_url=emb_cfg.base_url, provider=emb_cfg.provider)
+    except Exception as exc:
+        error_code = exc.code if isinstance(exc, AppException) else 5002
+        logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
+        if session is None:
+            await db.rollback()
+            yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
+            return
+        record = KbQaRecord(
+            session_id=session.id,
+            question=req.question,
+            answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
+            ref_chunks=[],
+            model_name=settings.LLM_MODEL,
+            round_key=round_key,
+        )
+        db.add(record)
+        await db.commit()
+        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
+        return
+
+    # — 3. KB 智能路由 —
+    resolved_kb_id, routing_event = await resolve_kb(
+        db, req.question, query_embedding, req.kb_id,
+        sys_cfg=sys_cfg, provider=provider, base_url=base_url,
+        model=model, api_key=api_key,
+    )
+
+    # Layer 3 未命中 → 返回引导消息给前端
+    if routing_event and routing_event.get("method") == "fallback":
+        if routing_event.get("no_candidates"):
+            # 所有 KB 都没有文档 → 提示用户上传
+            fallback_msg = (
+                "📄 当前没有任何知识库包含文档。"
+                "请先在 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），"
+                "上传完成后即可开始智能问答。"
+            )
+        else:
+            candidates = routing_event.get("candidates", [])
+            kb_names = "、".join(f"「{c['kb_name']}」" for c in candidates[:5])
+            fallback_msg = (
+                f"🤔 我不太确定该用哪个知识库来回答这个问题。\n\n"
+                f"你可以：\n"
+                + "".join(f"  • 指定 {c['kb_name']}\n" for c in candidates[:5])
+                + f"  • 搜索全部知识库\n"
+                f"  • 换个方式描述问题\n\n"
+                f"可用知识库：{kb_names}"
+            )
+        await _push_thinking(req.session_id, round_key, routing_event)
+        yield ("progress", json.dumps(routing_event))
+        yield ("error", json.dumps({"code": 4001, "message": fallback_msg, "route_fallback": True}))
+        # 如果已创建 session，确保提交
+        if session is None:
+            # 尚未创建 session，回滚
+            return
+        record = KbQaRecord(
+            session_id=session.id,
+            question=req.question,
+            answer=fallback_msg,
+            ref_chunks=[],
+            model_name=settings.LLM_MODEL,
+            round_key=round_key,
+        )
+        db.add(record)
+        await db.commit()
+        return
+
+    # 路由命中 → 输出 routing thinking 事件
+    if routing_event:
+        await _push_thinking(req.session_id, round_key, routing_event)
+        yield ("progress", json.dumps(routing_event))
+
+    # 最终 kb_id（路由命中值 或 用户指定值 或 0=全库）
+    kb_id = resolved_kb_id if resolved_kb_id is not None else 1
+
+    # — 4. 会话管理（延后到路由完成，使用正确的 kb_id）—
     if session is None:
+        is_demo = settings.DEMO_MODE
         if is_demo:
             session = KbSession(
                 session_id=req.session_id,
-                kb_id=session_kb_id,
+                kb_id=max(kb_id, 1),
                 title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
                 id=0,
             )
         else:
             session = KbSession(
                 session_id=req.session_id,
-                kb_id=session_kb_id,
+                kb_id=max(kb_id, 1),  # kb_id=0（全库检索）时 session 挂在默认 KB
                 title=req.question[:50] + ("..." if len(req.question) > 50 else ""),
             )
             db.add(session)
             await db.flush()
-            await db.commit()  # 立即提交会话创建，释放锁，后续 LLM 失败不影响会话存在
-
-    step = {"phase": "intent", "message": f"正在分析问题意图 (识别为: {_classify_intent(req.question)})...", "intent": _classify_intent(req.question), "elapsed_ms": 0}
-    await _push_thinking(req.session_id, round_key, step)
-    yield ("progress", json.dumps(step))
-
-    # — 2. Embedding —
-    step = {"phase": "retrieval", "message": "正在将问题转换为向量表示，准备检索...", "elapsed_ms": int((time.time() - t_start) * 1000)}
-    await _push_thinking(req.session_id, round_key, step)
-    yield ("progress", json.dumps(step))
-
-    try:
-        query_embedding = await embed_text(
-            req.question,
-            api_key=emb_api_key, base_url=emb_base_url,
-            provider=emb_provider_for_call, model=emb_model,
-        )
-    except Exception as exc:
-        error_code = exc.code if isinstance(exc, AppException) else 5002
-        logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
-        if not is_demo:
-            record = KbQaRecord(
-                session_id=session.id,
-                question=req.question,
-                answer=f"Embedding 服务异常，请检查模型配置。错误详情：{exc}",
-                ref_chunks=[],
-                model_name=settings.LLM_MODEL,
-                round_key=round_key,
-            )
-            db.add(record)
             await db.commit()
-        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
-        return
 
-    # — 3. 检索（粗排 top_k*2，后续 Reranker 精排）—
-    cfg = await get_config(db)
-    k = cfg.top_k if cfg.top_k is not None else 5
+    # — 5. 检索（粗排 top_k*2，后续 Reranker 精排）—
+    kb_cfg = await get_config_by_kb(db, max(kb_id, 1))
+    k = kb_cfg.top_k if kb_cfg and kb_cfg.top_k is not None else 5
+    threshold = kb_cfg.similarity_threshold if kb_cfg and kb_cfg.similarity_threshold is not None else 0.5
     step = {"phase": "retrieval", "message": f"正在检索本地向量数据库 (余弦相似度阈值 > {threshold:.0%})...", "elapsed_ms": int((time.time() - t_start) * 1000)}
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
@@ -222,17 +264,16 @@ async def chat_stream(
     candidate_chunks = await retrieve_chunks(db, query_embedding, kb_id=kb_id, top_k=k * 2)
 
     if not candidate_chunks:
-        if not is_demo:
-            record = KbQaRecord(
-                session_id=session.id,
-                question=req.question,
-                answer="📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。",
-                ref_chunks=[],
-                model_name=settings.LLM_MODEL,
-                round_key=round_key,
-            )
-            db.add(record)
-            await db.commit()
+        record = KbQaRecord(
+            session_id=session.id,
+            question=req.question,
+            answer="📄 知识库中还没有文档，我暂时无法回答你的问题。\n\n请先在左侧 知识中心 中上传文档（支持 PDF / Word / Markdown / TXT），上传完成后即可开始智能问答。",
+            ref_chunks=[],
+            model_name=settings.LLM_MODEL,
+            round_key=round_key,
+        )
+        db.add(record)
+        await db.commit()
         yield (
             "error",
             json.dumps({"code": 4001, "message": "未找到与问题相关的文档内容"}),
@@ -243,7 +284,7 @@ async def chat_stream(
     try:
         from app.services.reranker_service import rerank
         chunk_dicts = [{"content": c.content, "chunk_id": c.chunk_id, "doc_name": c.doc_name, "similarity": c.similarity, "page": c.page} for c in candidate_chunks]
-        ranked_dicts = await rerank(req.question, chunk_dicts, top_k=k)
+        ranked_dicts = await rerank(req.question, chunk_dicts, top_k=k, base_url=emb_cfg.base_url, api_key=emb_cfg.api_key)
         chunks = [
             RefChunk(
                 chunk_id=d["chunk_id"],
@@ -272,7 +313,7 @@ async def chat_stream(
         "phase": "matching",
         "message": f"查找到 {len(chunks)} 个相关文档分块，来自 {len(doc_names)} 份文档：",
         "elapsed_ms": int((time.time() - t_start) * 1000),
-        "similarity": round(chunks[0].similarity, 4),
+        "similarity": float(round(chunks[0].similarity, 4)),
     }
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
@@ -286,7 +327,7 @@ async def chat_stream(
                 "phase": "matching",
                 "message": f" -> [{idx}.{ci+1}] {c.doc_name}{page_str}，匹配度: {c.similarity:.1%}",
                 "elapsed_ms": int((time.time() - t_start) * 1000),
-                "similarity": round(c.similarity, 4),
+                "similarity": float(round(c.similarity, 4)),
             }
             await _push_thinking(req.session_id, round_key, step)
             yield ("progress", json.dumps(step))
@@ -297,48 +338,47 @@ async def chat_stream(
     yield ("progress", json.dumps(step))
 
     context = _build_context(chunks)
-    history = await _build_history(db, session.id) if not is_demo else ""
+    history = await _build_history(db, session.id)
     user_prompt = f"参考文档：\n\n{context}\n{history}\n用户问题：{req.question}\n\n请回答："
 
     full_answer = ""
     try:
-        async for token in generate_stream(RAG_SYSTEM_PROMPT, user_prompt, provider=provider, base_url=base_url, model=model, api_key=api_key):
+        system_prompt = sys_cfg.system_prompt.strip() if sys_cfg and sys_cfg.system_prompt else DEFAULT_SYSTEM_PROMPT
+        async for token in generate_stream(system_prompt, user_prompt, provider=provider, base_url=base_url, model=model, api_key=api_key):
             full_answer += token
             yield ("token", json.dumps({"content": token}))
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5001
         logger.error(f"rag_llm_failed session_id={req.session_id} provider={provider} model={model} error=\"{exc}\"")
-        if not is_demo:
-            record = KbQaRecord(
-                session_id=session.id,
-                question=req.question,
-                answer=full_answer + f"\n\n[生成中断] {exc}",
-                ref_chunks=[c.model_dump() for c in chunks],
-                model_name=settings.LLM_MODEL,
-                round_key=round_key,
-            )
-            db.add(record)
-            await db.commit()
-        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
-        return
-
-    # — 5. 保存 QA 记录 —
-    if not is_demo:
         record = KbQaRecord(
             session_id=session.id,
             question=req.question,
-            answer=full_answer,
+            answer=full_answer + f"\n\n[生成中断] {exc}",
             ref_chunks=[c.model_dump() for c in chunks],
             model_name=settings.LLM_MODEL,
             round_key=round_key,
         )
         db.add(record)
-
-        # 更新会话标题（首次问答后）
-        if session.title.startswith(req.question[:50]):
-            session.title = req.question[:30] + ("..." if len(req.question) > 30 else "")
-
         await db.commit()
+        yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
+        return
+
+    # — 5. 保存 QA 记录 —
+    record = KbQaRecord(
+        session_id=session.id,
+        question=req.question,
+        answer=full_answer,
+        ref_chunks=[c.model_dump() for c in chunks],
+        model_name=settings.LLM_MODEL,
+        round_key=round_key,
+    )
+    db.add(record)
+
+    # 更新会话标题（首次问答后）
+    if session.title.startswith(req.question[:50]):
+        session.title = req.question[:30] + ("..." if len(req.question) > 30 else "")
+
+    await db.commit()
 
     elapsed_ms = int((time.time() - t_start) * 1000)
     logger.info(
@@ -368,115 +408,4 @@ async def chat_stream(
 
 # 历史查询 / 会话列表
 
-async def get_chat_history(
-    db: AsyncSession, session_id: str, page: int = 1, page_size: int = 20
-) -> ChatHistoryResponse:
-    session = (
-        await db.execute(
-            select(KbSession).where(KbSession.session_id == session_id)
-        )
-    ).scalar_one_or_none()
-
-    if session is None:
-        raise SessionNotFoundError(f"会话不存在: {session_id}")
-
-    count_q = (
-        select(func.count())
-        .select_from(KbQaRecord)
-        .where(KbQaRecord.session_id == session.id)
-    )
-    total = (await db.execute(count_q)).scalar_one()
-
-    offset = (page - 1) * page_size
-    rows = (
-        await db.execute(
-            select(KbQaRecord)
-            .where(KbQaRecord.session_id == session.id)
-            .order_by(KbQaRecord.created_at.asc())
-            .offset(offset)
-            .limit(page_size)
-        )
-    ).scalars().all()
-
-    items = [
-        ChatHistoryRecord(
-            id=row.id,
-            question=row.question,
-            answer=row.answer,
-            ref_chunks=[RefChunk(**c) for c in (row.ref_chunks or [])],
-            model_name=row.model_name,
-            round_key=row.round_key,
-            created_at=row.created_at,
-        )
-        for row in rows
-    ]
-
-    return ChatHistoryResponse(
-        items=items, total=total, page=page, page_size=page_size
-    )
-
-
-async def list_sessions(db: AsyncSession) -> SessionsListResponse:
-    rows = (
-        await db.execute(
-            select(KbSession).order_by(KbSession.updated_at.desc())
-        )
-    ).scalars().all()
-
-    logger.debug(f"sessions_listed total={len(rows)}")
-
-    return SessionsListResponse(
-        sessions=[
-            SessionItem(
-                id=row.id,
-                session_id=row.session_id,
-                title=row.title,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-            )
-            for row in rows
-        ]
-    )
-
-
-async def delete_session(db: AsyncSession, session_id: str) -> None:
-    """删除会话及其所有问答记录，同时清理 Redis 推理缓存。"""
-    from sqlalchemy import delete
-
-    session = (
-        await db.execute(
-            select(KbSession).where(KbSession.session_id == session_id)
-        )
-    ).scalar_one_or_none()
-
-    if session is None:
-        raise SessionNotFoundError(f"会话不存在: {session_id}")
-
-    await db.execute(
-        delete(KbQaRecord).where(KbQaRecord.session_id == session.id)
-    )
-    # 先记数据，再删
-    qa_count = (
-        await db.execute(
-            select(func.count()).select_from(KbQaRecord).where(KbQaRecord.session_id == session.id)
-        )
-    ).scalar_one()
-    session_title = session.title
-
-    await db.execute(
-        delete(KbQaRecord).where(KbQaRecord.session_id == session.id)
-    )
-    await db.delete(session)
-    await db.commit()
-
-    logger.info(
-        f"session_deleted session_id={session_id} title=\"{session_title}\" qa_records={qa_count}"
-    )
-
-    # 清理 Redis 推理缓存
-    try:
-        from app.core.redis import get_redis
-        redis = await get_redis()
-        await redis.delete(f"mv:thinking:{session_id}")
-    except Exception:
-        logger.warning(f"redis_thinking_cleanup_failed session_id={session_id}")
+# session CRUD 已迁移到 session_service.py

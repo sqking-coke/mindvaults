@@ -1,11 +1,12 @@
 """Vault 导入 API 端点。"""
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 from app.api.deps import get_db
 from app.config import settings
+from app.core.exceptions import InternalError
 from app.schemas.vault import VaultImportRequest, VaultImportResponse
 from app.schemas.common import success_response, error_response
 from app.services.vault_service import import_vault, import_vault_files
@@ -41,7 +42,7 @@ async def import_vault_endpoint(
         raise
     except Exception as exc:
         logger.error(f"Vault 导入端点异常: {exc}")
-        raise HTTPException(status_code=500, detail=f"Vault 导入失败: {exc}")
+        raise InternalError(detail=f"Vault 导入失败: {exc}")
 
 
 @router.post("/vaults/upload", response_model=dict)
@@ -73,5 +74,5 @@ async def upload_vault_endpoint(
         return success_response(result)
     except Exception as exc:
         logger.error(f"Vault 上传导入接口异常: {exc}")
-        raise HTTPException(status_code=500, detail=f"Vault 上传并导入失败: {exc}")
+        raise InternalError(detail=f"Vault 上传并导入失败: {exc}")
 

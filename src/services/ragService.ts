@@ -18,6 +18,9 @@ import type {
   SystemConfigRequest,
   VaultImportRequest,
   VaultImportResponse,
+  Insight,
+  InsightListResponse,
+  InsightExtractionStats,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
 import { formatDateTime, formatTime } from "@/utils/date";
@@ -137,12 +140,11 @@ export async function fetchDocuments(
 }
 
 export async function watchDocuments(
-  kbId?: number,
+  kbId = 0,
   timeout = 60,
   signal?: AbortSignal,
 ): Promise<{ docs: DocumentRecord[]; total: number }> {
-  let path = `/api/v1/kb/documents/watch?timeout=${timeout}`;
-  if (kbId !== undefined) path += `&kb_id=${kbId}`;
+  const path = `/api/v1/kb/documents/watch?timeout=${timeout}&kb_id=${kbId}`;
   const data = await api.get<{ items: KbDocument[]; total: number }>(path, signal);
   return {
     docs: data.items.map(kbDocumentToDocRecord),
@@ -350,4 +352,48 @@ export interface SystemInfo {
 
 export async function fetchSystemInfo(signal?: AbortSignal): Promise<SystemInfo> {
   return api.get<SystemInfo>("/api/v1/health/system", signal);
+}
+
+// ==================== 对话知识沉淀 API (#16) ====================
+
+export async function fetchInsights(
+  kbId?: number,
+  status?: string,
+  page = 1,
+  pageSize = 20,
+  signal?: AbortSignal,
+): Promise<InsightListResponse> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (kbId !== undefined) params.set("kb_id", String(kbId));
+  if (status) params.set("status", status);
+  return api.get<InsightListResponse>(`/api/v1/kb/insights?${params}`, signal);
+}
+
+export async function reviewInsight(
+  insightId: number,
+  status: "approved" | "rejected",
+  targetKbId?: number,
+  signal?: AbortSignal,
+): Promise<Insight> {
+  return api.post<Insight>(
+    `/api/v1/kb/insights/${insightId}/review`,
+    { status, ...(targetKbId !== undefined ? { target_kb_id: targetKbId } : {}) },
+    signal,
+  );
+}
+
+export async function deleteInsight(
+  insightId: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await api.del(`/api/v1/kb/insights/${insightId}`, signal);
+}
+
+export async function saveInsight(
+  qaRecordId: number,
+  kbId: number,
+  signal?: AbortSignal,
+): Promise<Insight> {
+  const params = new URLSearchParams({ qa_record_id: String(qaRecordId), kb_id: String(kbId) });
+  return api.post<Insight>(`/api/v1/kb/chat/save-insight?${params}`, undefined, signal);
 }

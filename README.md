@@ -63,7 +63,7 @@ flowchart LR
 
 ## 引用溯源
 <p align="center">
-  <img src="public/screenshots/citation.jpg" alt="mindvaults 智能推理过程" />
+  <img src="public/screenshots/citation.jpg" alt="mindvaults 引用溯源" />
 </p>
 
 

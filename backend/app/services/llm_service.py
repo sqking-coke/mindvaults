@@ -74,7 +74,7 @@ async def _generate_ollama(
                         yield content
     except httpx.HTTPError as exc:
         logger.error(f"llm_call_failed provider=ollama model={model} error=\"{exc}\"")
-        raise LLMCallFailedError(f"LLM 调用失败: {exc}")
+        raise LLMCallFailedError(f"LLM 调用失败（model: {active_model}）: {exc}")
 
 
 async def _generate_openai(
@@ -92,7 +92,7 @@ async def _generate_openai(
     active_temp = temperature if temperature is not None else 0.3
 
     if not active_api_key:
-        raise LLMConfigRequiredError("请先配置大模型 API Key，否则无法进行智能问答")
+        raise LLMConfigRequiredError("大模型 API Key 未配置，请在设置页面添加")
 
     base = active_base_url.rstrip('/')
     url = f"{base}/chat/completions" if base.endswith("/v1") else f"{base}/v1/chat/completions"
@@ -133,6 +133,6 @@ async def _generate_openai(
         # 401/403 视为 API Key 无效/未配置
         status = getattr(exc, "response", None) and getattr(exc.response, "status_code", None)
         if status in (401, 403):
-            raise LLMConfigRequiredError(f"API Key 无效或未配置，请检查系统设置: {exc}")
+            raise LLMConfigRequiredError("大模型 API Key 无效，请检查设置")
         logger.error(f"llm_call_failed provider=openai model={model} error=\"{exc}\"")
-        raise LLMCallFailedError(f"LLM 调用失败: {exc}")
+        raise LLMCallFailedError(f"LLM 调用失败（model: {active_model}）: {exc}")
