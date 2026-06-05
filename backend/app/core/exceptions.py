@@ -109,6 +109,12 @@ class DataSourceError(AppException):
         super().__init__(code=7001, message=message, detail=detail, status_code=502)
 
 
+class ExternalAuthError(AppException):
+    """外部推送 API Key 无效或缺失。"""
+    def __init__(self, message: str = "API Key 无效或缺失", detail: Any = None, status_code: int = 401):
+        super().__init__(code=7002, message=message, detail=detail, status_code=status_code)
+
+
 # ── 基础设施异常 (8xxx) ───────────────────────────────────
 
 class DatabaseError(AppException):

@@ -17,15 +17,24 @@ import {
   ThumbsDown,
   Clock,
   Loader2,
+  MessageSquare,
+  Globe,
 } from "lucide-react";
 
 type TabKey = "pending" | "approved" | "rejected" | "processing";
+type SourceKey = "all" | "native" | "external";
 
 const STATUS_TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "processing", label: "处理中", icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
   { key: "pending", label: "待审核", icon: <Clock className="h-3.5 w-3.5" /> },
   { key: "approved", label: "已通过", icon: <ThumbsUp className="h-3.5 w-3.5" /> },
   { key: "rejected", label: "已拒绝", icon: <ThumbsDown className="h-3.5 w-3.5" /> },
+];
+
+const SOURCE_TABS: { key: SourceKey; label: string; icon: React.ReactNode }[] = [
+  { key: "all", label: "全部来源", icon: <Sparkles className="h-3.5 w-3.5" /> },
+  { key: "native", label: "本地 QA", icon: <MessageSquare className="h-3.5 w-3.5" /> },
+  { key: "external", label: "外部收集", icon: <Globe className="h-3.5 w-3.5" /> },
 ];
 
 // ── KB 选择器（对齐对话沙盒样式）──────────
@@ -94,6 +103,7 @@ function KbDropdown({
 export default function InsightReview() {
   const { knowledgeBases } = usemindvaults();
   const [activeTab, setActiveTab] = useState<TabKey>("pending");
+  const [activeSource, setActiveSource] = useState<SourceKey>("all");
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
@@ -105,7 +115,8 @@ export default function InsightReview() {
   const loadInsights = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchInsights(undefined, activeTab, 1, 50);
+      const sourceParam = activeSource === "all" ? undefined : activeSource;
+      const data = await fetchInsights(undefined, activeTab, 1, 50, sourceParam);
       setInsights(data.items);
       // 初始化目标 KB 映射（预填值来自 session.kb_id）
       const kbMap = new Map<number, number>();
@@ -113,12 +124,12 @@ export default function InsightReview() {
         if (ins.target_kb_id) kbMap.set(ins.id, ins.target_kb_id);
       });
       setTargetKbMap(kbMap);
-      // 加载各状态计数
+      // 加载各状态计数（按来源过滤）
       const [processing, pending, approved, rejected] = await Promise.all([
-        fetchInsights(undefined, "processing", 1, 1),
-        fetchInsights(undefined, "pending", 1, 1),
-        fetchInsights(undefined, "approved", 1, 1),
-        fetchInsights(undefined, "rejected", 1, 1),
+        fetchInsights(undefined, "processing", 1, 1, sourceParam),
+        fetchInsights(undefined, "pending", 1, 1, sourceParam),
+        fetchInsights(undefined, "approved", 1, 1, sourceParam),
+        fetchInsights(undefined, "rejected", 1, 1, sourceParam),
       ]);
       setCounts({
         processing: processing.total,
@@ -131,7 +142,7 @@ export default function InsightReview() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, [activeTab, activeSource]);
 
   useEffect(() => {
     loadInsights();
@@ -239,38 +250,59 @@ export default function InsightReview() {
 
       {/* Filter Bar */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-        <div className="px-5 py-3 flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1">状态</span>
-          {STATUS_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                activeTab === tab.key
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-              <span className={`text-[10px] ${activeTab === tab.key ? "text-indigo-200" : "text-slate-400"}`}>
-                {counts[tab.key]}
-              </span>
-            </button>
-          ))}
+        <div className="px-5 py-3 space-y-2.5">
+          {/* Source filter row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1">来源</span>
+            {SOURCE_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveSource(tab.key)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeSource === tab.key
+                    ? "bg-violet-600 text-white shadow-sm"
+                    : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {/* Status filter row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1">状态</span>
+            {STATUS_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeTab === tab.key
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+                <span className={`text-[10px] ${activeTab === tab.key ? "text-indigo-200" : "text-slate-400"}`}>
+                  {counts[tab.key]}
+                </span>
+              </button>
+            ))}
 
-          <div className="flex-1 flex items-center justify-end gap-2">
-            <span className="text-[11px] text-slate-400 font-medium shrink-0 whitespace-nowrap">
-              共 {counts[activeTab]} 条
-            </span>
-            <button
-              onClick={loadInsights}
-              disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-all focus:outline-none"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-indigo-500" : ""}`} />
-              刷新
-            </button>
+            <div className="flex-1 flex items-center justify-end gap-2">
+              <span className="text-[11px] text-slate-400 font-medium shrink-0 whitespace-nowrap">
+                共 {counts[activeTab]} 条
+              </span>
+              <button
+                onClick={loadInsights}
+                disabled={loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-all focus:outline-none"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-indigo-500" : ""}`} />
+                刷新
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -399,8 +431,17 @@ export default function InsightReview() {
                 <div className="ml-8 mt-3 pt-3 border-t border-slate-100">
                   {/* Top row: info + target KB selector */}
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                    <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
                       <span>#{insight.id}</span>
+                      {insight.source_type === "external" ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 text-violet-600 border border-violet-200">
+                          <Globe className="h-3 w-3" /> Skill 推送
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 border border-blue-200">
+                          <MessageSquare className="h-3 w-3" /> 本地 QA
+                        </span>
+                      )}
                       <span>{insight.created_at.slice(0, 10)}</span>
                       {insight.reviewed_at && (
                         <span>审核于 {insight.reviewed_at.slice(0, 10)}</span>

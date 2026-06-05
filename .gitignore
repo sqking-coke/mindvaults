@@ -26,6 +26,9 @@ __pycache__/
 .multica/
 CLAUDE.md
 
+# --- Plugin (独立仓库发布) ---
+mindvaults-glean/
+
 # --- Environment ---
 .env
 .env.local

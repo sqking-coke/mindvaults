@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
     # 确保系统知识库存在（每次启动自愈）
     from app.models.knowledge_base import KnowledgeBase
     from app.models.config import KbConfig
+    from app.models.system_config import SystemConfig
+    from app.services.external_push_service import generate_api_key
 
     async with AsyncSessionLocal() as db:
         try:
@@ -57,6 +59,17 @@ async def lifespan(app: FastAPI):
                 cfg = KbConfig(kb_id=1)
                 db.add(cfg)
                 await db.flush()
+
+            sys_cfg = await db.get(SystemConfig, 1)
+            if sys_cfg is None:
+                sys_cfg = SystemConfig(id=1)
+                db.add(sys_cfg)
+                await db.flush()
+                logger.info("lifespan_created_system_config id=1")
+            if not sys_cfg.external_api_key:
+                sys_cfg.external_api_key = generate_api_key()
+                await db.flush()
+                logger.info("lifespan_generated_external_api_key")
         except Exception as exc:
             logger.warning(f"lifespan_ensure_system_kb_failed error=\"{exc}\"")
         await db.commit()

@@ -15,6 +15,7 @@ scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 # ── 已注册任务 ID ───────────────────────────────────────────
 
 JOB_INSIGHT_EXTRACTION = "insight_extraction"
+JOB_STALE_ENTRY_CLEANUP = "stale_entry_cleanup"
 
 
 # ── 定时提炼任务 ────────────────────────────────────────────
@@ -35,6 +36,7 @@ async def _run_insight_extraction() -> None:
                 return
 
             from app.services.insight_service import extract_insights
+
             stats = await extract_insights(db, sys_cfg)
 
             await db.commit()
@@ -46,6 +48,24 @@ async def _run_insight_extraction() -> None:
 
     except Exception as exc:
         logger.error(f"insight_batch_failed error=\"{exc}\"")
+
+
+# ── 过期条目清理 ──────────────────────────────────────────
+
+async def _run_stale_entry_cleanup() -> None:
+    """删除 3 天前推送但仍未提炼的 pending 外部条目。"""
+    from app.core.database import AsyncSessionLocal
+    from app.services.external_push_service import cleanup_stale_pending_entries
+
+    logger.info("stale_entry_cleanup_started trigger=scheduler")
+
+    try:
+        async with AsyncSessionLocal() as db:
+            count = await cleanup_stale_pending_entries(db, days=3)
+            await db.commit()
+            logger.info(f"stale_entry_cleanup_completed deleted={count}")
+    except Exception as exc:
+        logger.error(f"stale_entry_cleanup_failed error=\"{exc}\"")
 
 
 def init_scheduler() -> None:
@@ -82,6 +102,15 @@ def init_scheduler() -> None:
         replace_existing=True,
     )
     logger.info(f"scheduler_job_registered job={JOB_INSIGHT_EXTRACTION} schedule={schedule_time}")
+
+    scheduler.add_job(
+        _run_stale_entry_cleanup,
+        trigger=CronTrigger(hour=int(hour), minute=int(minute)),
+        id=JOB_STALE_ENTRY_CLEANUP,
+        name="过期外部条目清理（3天）",
+        replace_existing=True,
+    )
+    logger.info(f"scheduler_job_registered job={JOB_STALE_ENTRY_CLEANUP} schedule={schedule_time}")
 
 
 def shutdown_scheduler() -> None:

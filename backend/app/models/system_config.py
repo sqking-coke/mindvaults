@@ -40,6 +40,9 @@ class SystemConfig(Base):
     insight_dedup_threshold: Mapped[float] = mapped_column(Float, default=0.92, nullable=False)
     insight_auto_approve_confidence: Mapped[float] = mapped_column(Float, default=0.95, nullable=False)
 
+    # 外部 Skill 插件推送认证 Key
+    external_api_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

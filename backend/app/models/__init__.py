@@ -16,6 +16,7 @@ from app.models.raw_entry import KbRawEntry  # noqa: E402, F401
 from app.models.feedback import KbFeedback  # noqa: E402, F401
 from app.models.system_config import SystemConfig  # noqa: E402, F401
 from app.models.insight import KbInsight  # noqa: E402, F401
+from app.models.external_entry import KbExternalEntry  # noqa: E402, F401
 
 __all__ = [
     "Base",
@@ -30,4 +31,5 @@ __all__ = [
     "KbFeedback",
     "SystemConfig",
     "KbInsight",
+    "KbExternalEntry",
 ]

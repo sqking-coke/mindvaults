@@ -9,6 +9,7 @@ from app.api.v1.config import router as config_router
 from app.api.v1.vault import router as vault_router
 from app.api.v1.knowledge_bases import router as kb_router
 from app.api.v1.insights import router as insights_router
+from app.api.v1.external import external_push_router, deposition_config_router
 from app.api.deps import verify_api_key
 
 api_router = APIRouter(prefix="/api/v1", dependencies=[Depends(verify_api_key)])
@@ -21,7 +22,9 @@ api_router.include_router(config_router, prefix="/kb")
 api_router.include_router(vault_router, prefix="/kb")
 api_router.include_router(kb_router, prefix="/kb")
 api_router.include_router(insights_router, prefix="/kb")
+api_router.include_router(deposition_config_router, prefix="/kb")
 
-# Health check — no auth required
+# Health check + external push (uses own KB-level API key auth, no global auth)
 public_router = APIRouter(prefix="/api/v1")
 public_router.include_router(health_router)
+public_router.include_router(external_push_router, prefix="/kb")

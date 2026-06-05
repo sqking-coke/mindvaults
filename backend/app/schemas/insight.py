@@ -37,8 +37,10 @@ class InsightResponse(BaseModel):
     status: str
     confidence: float
     tags: Optional[list[str]] = None
+    source_type: str = "native"           # native / external
     source_qa_ids: list[int] = []
     source_doc_ids: Optional[list[int]] = None
+    external_entry_ids: Optional[list[int]] = None
     reviewed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -61,3 +63,14 @@ class InsightExtractionStats(BaseModel):
     skipped_duplicate: int = 0
     auto_approved: int = 0
     errors: int = 0
+
+
+class ScheduleStatusResponse(BaseModel):
+    """定时任务状态。"""
+    extraction_enabled: bool = False
+    extraction_schedule: str = "02:00"
+    next_extraction_at: str = ""
+    next_cleanup_at: str = ""
+    pending_native_count: int = 0
+    pending_external_count: int = 0
+    stale_external_count: int = 0

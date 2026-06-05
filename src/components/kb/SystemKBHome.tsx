@@ -3,8 +3,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   fetchInsights,
+  fetchExternalEntries,
+  skipExternalEntry,
+  deleteExternalEntry,
 } from "@/services/ragService";
-import type { Insight } from "@/types/api";
+import type { Insight, ExternalEntryItem } from "@/types/api";
 import {
   Sparkles,
   Layers,
@@ -16,6 +19,10 @@ import {
   Tag,
   RefreshCw,
   Database,
+  Globe,
+  Trash2,
+  XCircle,
+  Inbox,
 } from "lucide-react";
 
 type SourceTab = "qa" | "skill";
@@ -30,21 +37,27 @@ export default function SystemKBHome() {
 
   // Stats
   const [insightCounts, setInsightCounts] = useState({ approved: 0, pending: 0 });
+  const [externalCount, setExternalCount] = useState(0);
 
   // List
   const [insights, setInsights] = useState<Insight[]>([]);
+  const [externalEntries, setExternalEntries] = useState<ExternalEntryItem[]>([]);
   const [monthlyNew, setMonthlyNew] = useState(0);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [expandedEntryIds, setExpandedEntryIds] = useState<Set<number>>(new Set());
+  const [actingEntryId, setActingEntryId] = useState<number | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [approvedData, pendingData] = await Promise.all([
+      const [approvedData, pendingData, externalData] = await Promise.all([
         fetchInsights(1, "approved", 1, 100),
         fetchInsights(1, "pending", 1, 1),
+        fetchExternalEntries(1, undefined, 1, 100),
       ]);
       setInsightCounts({ approved: approvedData.total, pending: pendingData.total });
+      setExternalCount(externalData.total);
 
       // 本月新增
       const now = new Date();
@@ -52,12 +65,14 @@ export default function SystemKBHome() {
       const monthCount = approvedData.items.filter((ins) => ins.created_at.startsWith(thisMonth)).length;
       setMonthlyNew(monthCount);
 
-      // 按来源过滤
+      // 按 source_type 过滤（不再用 source_qa_ids 启发式判断）
       const allItems = approvedData.items;
       if (activeTab === "qa") {
-        setInsights(allItems.filter((ins) => ins.source_qa_ids && ins.source_qa_ids.length > 0));
+        setInsights(allItems.filter((ins) => ins.source_type !== "external"));
+        setExternalEntries([]);
       } else {
-        setInsights(allItems.filter((ins) => !ins.source_qa_ids || ins.source_qa_ids.length === 0));
+        setInsights(allItems.filter((ins) => ins.source_type === "external"));
+        setExternalEntries(externalData.items);
       }
     } catch {
       // ignore
@@ -69,6 +84,31 @@ export default function SystemKBHome() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleSkipEntry = async (id: number) => {
+    setActingEntryId(id);
+    try {
+      await skipExternalEntry(id);
+      await loadData();
+    } catch (err) {
+      console.error("skipExternalEntry failed:", err);
+    } finally {
+      setActingEntryId(null);
+    }
+  };
+
+  const handleDeleteEntry = async (id: number) => {
+    if (!confirm("确定要永久删除该外部对话记录吗？此操作不可撤销。")) return;
+    setActingEntryId(id);
+    try {
+      await deleteExternalEntry(id);
+      await loadData();
+    } catch (err) {
+      console.error("deleteExternalEntry failed:", err);
+    } finally {
+      setActingEntryId(null);
+    }
+  };
 
   const toggleExpand = (id: number) => {
     setExpandedIds((prev) => {
@@ -139,15 +179,15 @@ export default function SystemKBHome() {
 
             <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex items-start justify-between">
               <div className="space-y-1.5 flex-1 min-w-0">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">关联切片</span>
-                <span className="text-2xl font-black text-slate-800 block font-mono">{insightCounts.approved}</span>
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">外部收集</span>
+                <span className="text-2xl font-black text-violet-700 block font-mono">{externalCount}</span>
                 <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                  <Layers className="h-3 w-3 text-violet-500 shrink-0" />
-                  已落地为可检索向量
+                  <ArrowUpRight className="h-3 w-3 text-violet-500 shrink-0" />
+                  Skill 插件推送
                 </span>
               </div>
               <div className="h-10 w-10 shrink-0 bg-violet-50 rounded-xl flex items-center justify-center text-violet-600">
-                <Layers className="h-5 w-5" />
+                <Globe className="h-5 w-5" />
               </div>
             </div>
 
@@ -195,14 +235,14 @@ export default function SystemKBHome() {
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-indigo-500" />
             </div>
-          ) : insights.length === 0 ? (
+          ) : insights.length === 0 && externalEntries.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
               <div className="flex flex-col items-center justify-center py-16 text-slate-400 select-none">
                 <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center mb-3">
                   <Sparkles className="h-7 w-7 text-slate-300" />
                 </div>
                 <p className="text-sm font-semibold text-slate-500 mb-1">
-                  {activeTab === "qa" ? "暂无本地 QA 沉淀知识点" : "暂无外部 Skill 沉淀知识点"}
+                  {activeTab === "qa" ? "暂无本地 QA 沉淀知识点" : "暂无外部 Skill 数据"}
                 </p>
                 <p className="text-xs text-slate-400">
                   {activeTab === "qa"
@@ -213,79 +253,175 @@ export default function SystemKBHome() {
             </div>
           ) : (
             <div className="space-y-3">
-              {insights.map((insight) => (
-                <div
-                  key={insight.id}
-                  className="bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-slate-300 hover:shadow-md transition-all duration-200"
-                >
-                  <div className="p-5">
-                    {/* Title + Tags */}
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex items-start gap-2.5 min-w-0">
-                        <span className="text-lg mt-0.5 shrink-0">💡</span>
-                        <div className="min-w-0">
-                          <h3 className="font-bold text-slate-800 text-sm leading-snug">{insight.title}</h3>
-                          {insight.tags && insight.tags.length > 0 && (
-                            <div className="flex items-center gap-1 flex-wrap mt-1.5">
-                              <Tag className="h-3 w-3 text-slate-400 shrink-0" />
-                              {insight.tags.map((t, i) => (
-                                <span key={i} className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
-                                  {t}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {/* Confidence */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <div className="w-10 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${Math.round(insight.confidence * 100)}%`, backgroundColor: "#22c55e" }}
-                          />
-                        </div>
-                        <span className="text-xs font-bold font-mono text-green-600 w-8 text-right">
-                          {Math.round(insight.confidence * 100)}%
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="ml-8">
-                      <p className={`text-sm text-slate-600 leading-relaxed ${expandedIds.has(insight.id) ? "" : "line-clamp-2"}`}>
-                        {insight.content}
-                      </p>
-                      {insight.content.length > 100 && (
-                        <button
-                          onClick={() => toggleExpand(insight.id)}
-                          className="text-xs text-indigo-500 hover:text-indigo-700 mt-1 flex items-center gap-1 font-medium"
-                        >
-                          {expandedIds.has(insight.id) ? (
-                            <><ChevronUp className="h-3 w-3" /> 收起</>
-                          ) : (
-                            <><ChevronDown className="h-3 w-3" /> 展开</>
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Footer */}
-                    <div className="ml-8 mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                        <span className="flex items-center gap-1">
-                          <MessageSquare className="h-3 w-3" />
-                          {insight.source_qa_ids.length} 条对话来源
-                        </span>
-                        <span>{insight.created_at.slice(0, 10)}</span>
-                      </div>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600 border border-green-200 font-medium">
-                        已入库
-                      </span>
-                    </div>
+              {/* Raw External Entries (only on Skill tab) */}
+              {activeTab === "skill" && externalEntries.length > 0 && (
+                <>
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                    原始对话记录（{externalEntries.filter(e => e.status === "pending").length} 条待处理 · 共 {externalEntries.length} 条）
                   </div>
-                </div>
-              ))}
+                  {externalEntries.map((entry) => {
+                    const isExpanded = expandedEntryIds.has(entry.id);
+                    return (
+                      <div
+                        key={`ext-${entry.id}`}
+                        className="bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-violet-200 hover:shadow-md transition-all duration-200"
+                      >
+                        <div className="p-5">
+                          {/* Question */}
+                          <div className="flex items-start gap-2.5 mb-3">
+                            <Inbox className="h-4 w-4 mt-0.5 shrink-0 text-violet-400" />
+                            <div className="min-w-0 flex-1">
+                              <p className={`text-sm text-slate-800 font-medium leading-snug ${isExpanded ? "" : "line-clamp-2"}`}>
+                                {entry.question}
+                              </p>
+                            </div>
+                          </div>
+                          {/* Answer */}
+                          <div className="ml-7">
+                            <p className={`text-sm text-slate-600 leading-relaxed ${isExpanded ? "" : "line-clamp-3"}`}>
+                              {entry.answer}
+                            </p>
+                            {entry.answer.length > 150 && (
+                              <button
+                                onClick={() => {
+                                  setExpandedEntryIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(entry.id)) next.delete(entry.id);
+                                    else next.add(entry.id);
+                                    return next;
+                                  });
+                                }}
+                                className="text-xs text-violet-500 hover:text-violet-700 mt-1 flex items-center gap-1 font-medium"
+                              >
+                                {isExpanded ? <><ChevronUp className="h-3 w-3" /> 收起</> : <><ChevronDown className="h-3 w-3" /> 展开</>}
+                              </button>
+                            )}
+                          </div>
+                          {/* Footer */}
+                          <div className="ml-7 mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                            <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                              <span className="flex items-center gap-1">
+                                <Globe className="h-3 w-3" />
+                                {entry.source_platform}
+                              </span>
+                              <span>{entry.created_at.slice(0, 10)}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {entry.status === "pending" && (
+                                <>
+                                  <button
+                                    onClick={() => handleSkipEntry(entry.id)}
+                                    disabled={actingEntryId === entry.id}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-slate-500 hover:text-amber-600 hover:bg-amber-50 border border-slate-200 hover:border-amber-200 disabled:opacity-50 transition-colors"
+                                  >
+                                    <XCircle className="h-3 w-3" />
+                                    丢弃
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteEntry(entry.id)}
+                                    disabled={actingEntryId === entry.id}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-slate-500 hover:text-red-500 hover:bg-red-50 border border-slate-200 hover:border-red-200 disabled:opacity-50 transition-colors"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                    删除
+                                  </button>
+                                </>
+                              )}
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                                entry.status === "extracted"
+                                  ? "bg-green-50 text-green-600 border-green-200"
+                                  : entry.status === "skipped"
+                                  ? "bg-slate-100 text-slate-500 border-slate-200"
+                                  : "bg-amber-50 text-amber-600 border-amber-200"
+                              }`}>
+                                {entry.status === "extracted" ? "已提炼" : entry.status === "skipped" ? "已丢弃" : "待提炼"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Insight Cards (approved & materialized) */}
+              {insights.length > 0 && (
+                <>
+                  {activeTab === "skill" && (
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1 pt-2">
+                      已提炼知识点（{insights.length} 条 · 已入库）
+                    </div>
+                  )}
+                  {insights.map((insight) => (
+                    <div
+                      key={insight.id}
+                      className="bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-slate-300 hover:shadow-md transition-all duration-200"
+                    >
+                      <div className="p-5">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <span className="text-lg mt-0.5 shrink-0">💡</span>
+                            <div className="min-w-0">
+                              <h3 className="font-bold text-slate-800 text-sm leading-snug">{insight.title}</h3>
+                              {insight.tags && insight.tags.length > 0 && (
+                                <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                                  <Tag className="h-3 w-3 text-slate-400 shrink-0" />
+                                  {insight.tags.map((t, i) => (
+                                    <span key={i} className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
+                                      {t}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="w-10 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full"
+                                style={{ width: `${Math.round(insight.confidence * 100)}%`, backgroundColor: "#22c55e" }}
+                              />
+                            </div>
+                            <span className="text-xs font-bold font-mono text-green-600 w-8 text-right">
+                              {Math.round(insight.confidence * 100)}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="ml-8">
+                          <p className={`text-sm text-slate-600 leading-relaxed ${expandedIds.has(insight.id) ? "" : "line-clamp-2"}`}>
+                            {insight.content}
+                          </p>
+                          {insight.content.length > 100 && (
+                            <button
+                              onClick={() => toggleExpand(insight.id)}
+                              className="text-xs text-indigo-500 hover:text-indigo-700 mt-1 flex items-center gap-1 font-medium"
+                            >
+                              {expandedIds.has(insight.id) ? (
+                                <><ChevronUp className="h-3 w-3" /> 收起</>
+                              ) : (
+                                <><ChevronDown className="h-3 w-3" /> 展开</>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <div className="ml-8 mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                          <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                            <span className="flex items-center gap-1">
+                              <MessageSquare className="h-3 w-3" />
+                              {insight.source_qa_ids.length} 条对话来源
+                            </span>
+                            <span>{insight.created_at.slice(0, 10)}</span>
+                          </div>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600 border border-green-200 font-medium">
+                            已入库
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </div>

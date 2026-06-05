@@ -26,8 +26,12 @@ class KbInsight(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1024), nullable=True)
 
+    # 来源类型：native（内部 QA）/ external（外部对话）
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="native")
     source_qa_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False, default=[])
     source_doc_ids: Mapped[Optional[list[int]]] = mapped_column(ARRAY(BigInteger), nullable=True)
+    # 外部对话来源时关联 kb_external_entries.id
+    external_entry_ids: Mapped[Optional[list[int]]] = mapped_column(ARRAY(BigInteger), nullable=True)
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,6 +1,13 @@
-# Skill 集成 — 知识沉淀收集入口
+# Skill插件 - 知识沉淀收集
 
-> 状态：✅ 方案已确定 | 创建：2026-06-02 | 关联：[[16-对话知识沉淀]]
+> 状态：✅ 已实现（与原始方案有简化） | 创建：2026-06-02 | 更新：2026-06-05 | 关联：[[16-对话知识沉淀]] [[18-Skill插件开发计划]]
+>
+> **实际实现 vs 原始方案的关键简化：**
+> - API Key：per-KB → 全局 `system_config.external_api_key`（migration 0015）
+> - 沉淀库：独立 KB → 统一系统 KB（id=1）
+> - kb_type 默认：`normal` → `general`
+> - 推送响应：`entries` → `entry_ids` + `skipped`
+> - 配置响应：扁平化（无 `skill_config` 嵌套）+ `kb_name`
 
 ## 定位
 
@@ -58,8 +65,8 @@ Skill 不做权限管理、不做多 KB 路由——所有外部对话统一进�
 | 收集粒度 | 支持单条 QA 和完整会话两种模式，skill 端可配 |
 | 行为模式 | **混合**：默认自动收集，用户可 `/mindvaults off/on` 控制 |
 | 目标 KB | 不开放指定，统一推入沉淀专用 KB，用户后续在审核页面分配 |
-| 认证 | **KB 级 API Key**：每个沉淀 KB 生成一个 Key，泄露只影响该 KB |
-| 沉淀库 | **自动创建**：用户首次使用 skill 或首次触发提炼时系统创建，type=`deposition` |
+| 认证 | **全局 external_api_key**：存在 `system_config.external_api_key`，启动时自愈生成（实际实现简化，不再 per-KB） |
+| 沉淀库 | 统一使用系统 KB（id=1），不单独创建沉淀库（实际实现简化） |
 | 审核后 | 作为 `kb_chunks` 插入目标 KB（绑定虚拟文档），沉淀库保留原 insight 副本 |
 | 平台 | 先做 **Claude Code Skill**，后续抽象通用 API 适配其他平台 |
 
@@ -71,10 +78,11 @@ Skill 不做权限管理、不做多 KB 路由——所有外部对话统一进�
 
 ```sql
 ALTER TABLE kb_knowledge_bases
-  ADD COLUMN kb_type VARCHAR(20) NOT NULL DEFAULT 'normal';
-  -- 'normal' = 普通知识库
-  -- 'deposition' = 知识沉淀库（每个用户仅一个）
+  ADD COLUMN kb_type VARCHAR(20) NOT NULL DEFAULT 'general';
+  -- 'general' = 普通知识库
+  -- 'deposition' = 知识沉淀库
 ```
+> ✅ 已实现：migration 0011，默认值 `general`
 
 ### `kb_external_entries` — 外部对话暂存表
 
@@ -152,9 +160,12 @@ Response:
   "code": 0,
   "data": {
     "received": 2,                    // 接收条数
-    "entries": [123, 124]             // 创建的 entry ID
+    "skipped": 0,                     // 去重跳过的条数
+    "entry_ids": [123, 124]           // 创建的 entry ID
   }
 }
+```
+> ✅ 已实现：字段名 `entry_ids`（比计划更精确），新增 `skipped` 字段
 ```
 
 **去重**：`source_platform + source_session + question` 组合唯一，重复推送自动跳过。
@@ -168,17 +179,16 @@ Response:
 {
   "code": 0,
   "data": {
-    "kb_id": 99,
-    "kb_name": "知识沉淀",
+    "kb_id": 1,
+    "kb_name": "默认系统库",            // ✅ 已实现：返回系统 KB 名称
     "api_key": "mv-dep-xxxxxxxxxxxx",   // 仅返回一次（创建时）
     "entry_count": 128,
     "pending_insights": 5,
-    "skill_config": {
-      "endpoint": "https://your-instance.com/api/v1/kb/external/push",
-      "api_key": "mv-dep-xxxxxxxxxxxx"
-    }
+    "endpoint": "https://your-instance.com/api/v1/kb/external/push"
   }
 }
+```
+> ✅ 已实现：扁平化（无 `skill_config` 嵌套），前端自己拼配置命令；新增 `kb_name` 字段
 ```
 
 ### `POST /api/v1/kb/deposition/key/rotate`
@@ -195,17 +205,17 @@ Response:
 
 ```bash
 # 方式 1：通过 skill 市场（未来）
-claude skills install mindvaults-sync
+claude skills install mindvaults-glean
 
 # 方式 2：手动配置（初期）
-mkdir -p ~/.claude/skills/mindvaults-sync
+mkdir -p ~/.claude/skills/mindvaults-glean
 # 将 skill.md 和 settings hook 放入该目录
 ```
 
 ### Skill 结构
 
 ```
-~/.claude/skills/mindvaults-sync/
+~/.claude/skills/mindvaults-glean/
 ├── skill.md           # Skill 定义（用途、命令、配置说明）
 └── CLAUDE.md          # Hook 配置（自动收集逻辑）
 ```

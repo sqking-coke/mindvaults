@@ -414,6 +414,21 @@ export interface VaultImportResponse {
   documents: VaultImportDocument[];
 }
 
+// ==================== 外部推送设置 API (#17) ====================
+
+export interface DepositionConfig {
+  kb_id: number;
+  kb_name: string;
+  api_key: string | null;
+  entry_count: number;
+  pending_insights: number;
+  endpoint: string;
+}
+
+export interface KeyRotateResponse {
+  api_key: string;
+}
+
 // ==================== 对话知识沉淀 API (#16) ====================
 
 export interface Insight {
@@ -425,8 +440,10 @@ export interface Insight {
   status: "pending" | "approved" | "rejected" | "processing";
   confidence: number;
   tags: string[] | null;
+  source_type: string;          // "native" | "external"
   source_qa_ids: number[];
   source_doc_ids: number[] | null;
+  external_entry_ids: number[] | null;
   reviewed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -441,3 +458,19 @@ export interface InsightExtractionStats {
   auto_approved: number;
   errors: number;
 }
+
+// ==================== 外部推送条目 ====================
+
+export interface ExternalEntryItem {
+  id: number;
+  kb_id: number;
+  question: string;
+  answer: string;
+  source_platform: string;
+  source_session: string | null;
+  status: string;
+  pushed_at: string;
+  created_at: string;
+}
+
+export interface ExternalEntryListResponse extends PaginatedData<ExternalEntryItem> {}

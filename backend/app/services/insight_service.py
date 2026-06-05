@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppException
 from app.models.chunk import KbChunk
 from app.models.document import KbDocument, DOC_STATUS_COMPLETED
+from app.models.external_entry import KbExternalEntry
 from app.models.insight import KbInsight
 from app.models.qa_record import KbQaRecord
 from app.models.session import KbSession
@@ -112,25 +113,33 @@ async def extract_insights(
     db: AsyncSession,
     sys_cfg: SystemConfig,
 ) -> dict[str, int]:
-    """批处理提炼：从未处理的 QA 记录中提取知识点。
+    """批处理提炼：从 kb_qa_records + kb_external_entries 提取知识点。
 
-    返回统计字典：{extracted, skipped_short, skipped_duplicate, auto_approved, errors}
+    统一管道——仅数据来源不同，LLM 提炼 / 去重 / embedding / 入库完全一致。
     """
     t_start = time.time()
     stats: dict[str, int] = {
         "extracted": 0, "skipped_short": 0,
         "skipped_duplicate": 0, "auto_approved": 0, "errors": 0,
     }
-
-    # ── Step 1：查询未处理的 QA 记录 ─────────────────────────
-    # 条件：答案长度 >= min_answer_length，且尚未被任何 insight 引用
     min_len = sys_cfg.insight_min_answer_length
 
-    # 子查询：所有已被 insight 引用的 source_qa_id（展开 ARRAY）
-    used_ids_query = select(func.unnest(KbInsight.source_qa_ids)).subquery()
-    used_ids = {row[0] for row in (await db.execute(select(used_ids_query.c[0]))).all()}
+    # ── Step 1：收集待处理项（原生 QA + 外部条目）─────────────
 
-    # 查询符合条件的 QA 记录
+    # 原生 QA 已引用 ID 去重
+    native_used = {row[0] for row in (await db.execute(
+        select(func.unnest(KbInsight.source_qa_ids))
+    )).all()}
+
+    # 外部条目已引用 ID 去重
+    external_used = {row[0] for row in (await db.execute(
+        select(func.unnest(KbInsight.external_entry_ids))
+    )).all()}
+
+    # 统一的待处理项列表
+    items: list[dict] = []
+
+    # — 原生 QA（48h 窗口）—
     qa_stmt = (
         select(KbQaRecord, KbSession)
         .join(KbSession, KbQaRecord.session_id == KbSession.id)
@@ -139,17 +148,48 @@ async def extract_insights(
             KbQaRecord.created_at > func.now() - text("INTERVAL '48 hours'"),
         )
         .order_by(KbQaRecord.created_at.desc())
-        .limit(50)  # 每次最多处理 50 条
+        .limit(50)
     )
-    qa_rows = (await db.execute(qa_stmt)).all()
+    for qa, sess in (await db.execute(qa_stmt)).all():
+        if qa.id not in native_used:
+            items.append({
+                "question": qa.question,
+                "answer": qa.answer,
+                "source_type": "native",
+                "source_id": qa.id,
+                "target_kb_id": sess.kb_id if sess else _SYSTEM_KB_ID,
+            })
 
-    # 过滤已处理
-    unprocessed = [(qa, sess) for qa, sess in qa_rows if qa.id not in used_ids]
-    if not unprocessed:
-        logger.info("insight_extraction_no_unprocessed_qa")
+    # — 外部条目（不限时间窗口）—
+    entry_stmt = (
+        select(KbExternalEntry)
+        .where(
+            KbExternalEntry.status == "pending",
+            KbExternalEntry.kb_id == _SYSTEM_KB_ID,
+            func.length(KbExternalEntry.answer) >= min_len,
+        )
+        .order_by(KbExternalEntry.created_at.desc())
+        .limit(50)
+    )
+    for entry in (await db.execute(entry_stmt)).scalars().all():
+        if entry.id not in external_used:
+            items.append({
+                "question": entry.question,
+                "answer": entry.answer,
+                "source_type": "external",
+                "source_id": entry.id,
+                "target_kb_id": entry.kb_id,
+            })
+
+    if not items:
+        logger.info("insight_extraction_no_unprocessed")
         return stats
 
-    logger.info(f"insight_extraction_candidates total={len(unprocessed)}")
+    native_count = sum(1 for i in items if i["source_type"] == "native")
+    external_count = sum(1 for i in items if i["source_type"] == "external")
+    logger.info(
+        f"insight_extraction_candidates native={native_count} external={external_count}"
+    )
 
     # ── Step 2：获取 LLM 配置 ─────────────────────────────────
     emb_cfg = await resolve_embedding_config(sys_cfg)
@@ -159,22 +199,18 @@ async def extract_insights(
     base_url = sys_cfg.llm_base_url or "http://localhost:11434"
     api_key = sys_cfg.llm_api_key or ""
 
-    # ── Step 3：批量调 LLM 提炼 ─────────────────────────────
-    # 分批处理，每批最多 10 条 QA
+    # ── Step 3：批量调 LLM 提炼（统一 prompt，不区分来源）───
     BATCH_SIZE = 10
     all_candidates: list[dict] = []
 
-    for batch_start in range(0, len(unprocessed), BATCH_SIZE):
-        batch = unprocessed[batch_start:batch_start + BATCH_SIZE]
+    for batch_start in range(0, len(items), BATCH_SIZE):
+        batch = items[batch_start:batch_start + BATCH_SIZE]
 
-        # 构建 user prompt
-        qa_items = []
-        for qa, sess in batch:
-            qa_items.append(
-                f"Q: {qa.question}\\nA: {qa.answer[:1000]}"  # 截断过长的回答
-            )
-        user_prompt = "以下是对话记录，请提炼知识点：\\n" + "\\n---\\n".join(
-            f"{i+1}. {item}" for i, item in enumerate(qa_items)
+        qa_parts = []
+        for item in batch:
+            qa_parts.append(f"Q: {item['question']}\nA: {item['answer'][:1000]}")
+        user_prompt = "以下是对话记录，请提炼知识点：\n" + "\n---\n".join(
+            f"{i+1}. {p}" for i, p in enumerate(qa_parts)
         )
 
         try:
@@ -185,19 +221,31 @@ async def extract_insights(
             )
             extracted = _parse_extraction_response(response)
 
-            # 对齐 source_qa_ids（LLM 返回的序号 → 真实 qa_record.id）
-            for item in extracted:
-                raw_indices = item.get("source_qa_ids", [])
-                real_ids = []
+            # 对齐 source ID（LLM 序号 → 真实记录 ID，保留来源类型）
+            for ext_item in extracted:
+                raw_indices = ext_item.get("source_qa_ids", [])
+                native_ids: list[int] = []
+                external_ids: list[int] = []
                 for idx in raw_indices:
                     if 1 <= idx <= len(batch):
-                        real_ids.append(batch[idx - 1][0].id)
-                item["source_qa_ids"] = real_ids
-                all_candidates.append(item)
+                        bi = batch[idx - 1]
+                        if bi["source_type"] == "native":
+                            native_ids.append(bi["source_id"])
+                        else:
+                            external_ids.append(bi["source_id"])
+
+                # 纯外部来源 → source_type=external，否则保持 native
+                ext_item["source_qa_ids"] = native_ids
+                ext_item["external_entry_ids"] = external_ids
+                ext_item["_source_type"] = "external" if (external_ids and not native_ids) else "native"
+                # 目标 KB：取第一条来源的 target_kb_id
+                first_i = min(raw_indices[0] - 1, len(batch) - 1) if raw_indices else 0
+                ext_item["_target_kb_id"] = batch[first_i]["target_kb_id"]
+                all_candidates.append(ext_item)
 
             logger.info(
                 f"insight_llm_batch batch={batch_start // BATCH_SIZE + 1} "
-                f"qa_count={len(batch)} extracted={len(extracted)}"
+                f"item_count={len(batch)} extracted={len(extracted)}"
             )
 
         except Exception as exc:
@@ -208,7 +256,7 @@ async def extract_insights(
     if not all_candidates:
         return stats
 
-    # ── Step 4：查询已有 approved insight（用于去重） ──────────
+    # ── Step 4：查询已有 approved insight（用于向量去重）──────
     existing_stmt = (
         select(KbInsight.id, KbInsight.title, KbInsight.embedding)
         .where(KbInsight.status == "approved")
@@ -219,21 +267,25 @@ async def extract_insights(
     dedup_threshold = sys_cfg.insight_dedup_threshold
     auto_threshold = sys_cfg.insight_auto_approve_confidence
 
-    # ── Step 5：去重 + 生成 embedding + 写入 ──────────────────
+    # ── Step 5：去重 + embedding + 写入（统一，按来源标记）───
+    processed_external_ids: set[int] = set()
+
     for candidate in all_candidates:
         title = candidate.get("title", "").strip()
         content = candidate.get("content", "").strip()
         confidence = float(candidate.get("confidence", 0.0))
         tags = candidate.get("tags", [])
         source_qa_ids = candidate.get("source_qa_ids", [])
+        external_entry_ids = candidate.get("external_entry_ids", [])
+        source_type = candidate.get("_source_type", "native")
+        target_kb_id = candidate.get("_target_kb_id", _SYSTEM_KB_ID)
 
-        if not title or not content or not source_qa_ids:
+        if not title or not content or (not source_qa_ids and not external_entry_ids):
             stats["skipped_short"] += 1
             continue
 
-        # ID 去重
-        qa_set = set(source_qa_ids)
-        if qa_set & used_ids:
+        # ID 去重（两种来源各自独立的 ID 空间）
+        if (set(source_qa_ids) & native_used) or (set(external_entry_ids) & external_used):
             stats["skipped_duplicate"] += 1
             continue
 
@@ -251,7 +303,7 @@ async def extract_insights(
             stats["errors"] += 1
             continue
 
-        # 向量去重（仅与 approved insights 比）
+        # 向量去重（与所有 approved insights 比较）
         dup = False
         for eid, etitle, eemb in existing_embeddings:
             if _cosine_similarity(embedding, eemb) >= dedup_threshold:
@@ -263,34 +315,22 @@ async def extract_insights(
             continue
 
         # 标记已处理
-        used_ids |= qa_set
+        native_used |= set(source_qa_ids)
+        external_used |= set(external_entry_ids)
+        processed_external_ids |= set(external_entry_ids)
 
-        # 追溯 target_kb_id（从第一条 QA 的 session 推断，审核时可改）
-        qa_first = (await db.execute(
-            select(KbQaRecord).where(KbQaRecord.id == source_qa_ids[0])
-        )).scalar_one_or_none()
-        sess = None
-        if qa_first:
-            sess = (await db.execute(
-                select(KbSession).where(KbSession.id == qa_first.session_id)
-            )).scalar_one_or_none()
-        target_kb_id = sess.kb_id if sess else 1
-
-        # 存放 KB = 沉积库（统一入口）
-        sys_kb = _SYSTEM_KB_ID
-
-        # 置信度 >= auto_approve 阈值 → 自动通过
         auto_approved = confidence >= auto_threshold
         status = "approved" if auto_approved else "pending"
 
         insight = KbInsight(
-            kb_id=sys_kb,
+            kb_id=_SYSTEM_KB_ID,
             target_kb_id=target_kb_id,
             title=title,
             content=content,
             embedding=embedding,
+            source_type=source_type,
             source_qa_ids=source_qa_ids,
-            source_doc_ids=candidate.get("source_doc_ids"),
+            external_entry_ids=external_entry_ids if external_entry_ids else None,
             status=status,
             confidence=confidence,
             tags=tags,
@@ -309,6 +349,17 @@ async def extract_insights(
         if auto_approved:
             stats["auto_approved"] += 1
 
+    # ── Step 6：更新外部条目状态为 extracted ────────────────
+    if processed_external_ids:
+        entries_to_update = (await db.execute(
+            select(KbExternalEntry).where(
+                KbExternalEntry.id.in_(list(processed_external_ids))
+            )
+        )).scalars().all()
+        for entry in entries_to_update:
+            entry.status = "extracted"
+            entry.extracted_at = func.now()
+
     await db.flush()
 
     elapsed = round((time.time() - t_start) * 1000)
@@ -325,6 +376,7 @@ async def list_insights(
     db: AsyncSession,
     kb_id: int | None = None,
     status: str | None = None,
+    source_type: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[KbInsight], int]:
@@ -334,6 +386,8 @@ async def list_insights(
         filters.append(KbInsight.kb_id == kb_id)
     if status is not None:
         filters.append(KbInsight.status == status)
+    if source_type is not None:
+        filters.append(KbInsight.source_type == source_type)
 
     count_stmt = select(func.count(KbInsight.id)).where(*filters)
     total = (await db.execute(count_stmt)).scalar_one()

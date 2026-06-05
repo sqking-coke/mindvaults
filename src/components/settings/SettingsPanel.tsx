@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
-import { Settings, Cpu, Sliders, ArrowLeft, Braces, Sparkles } from "lucide-react";
+import { Settings, Cpu, Sliders, ArrowLeft, Braces, Sparkles, Globe, Key, Copy, Eye, EyeOff, RefreshCw, Check } from "lucide-react";
 import Link from "next/link";
+import { fetchDepositionConfig, rotateDepositionKey } from "@/services/ragService";
+import type { DepositionConfig } from "@/types/api";
 
 export default function SettingsPanel() {
   const {
@@ -52,6 +54,15 @@ export default function SettingsPanel() {
   const [insightDedupThreshold, setInsightDedupThreshold] = useState(0.92);
   const [insightAutoApprove, setInsightAutoApprove] = useState(0.95);
 
+  // 外部推送配置（Skill 插件）
+  const [depConfig, setDepConfig] = useState<DepositionConfig | null>(null);
+  const [depLoading, setDepLoading] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [copiedEndpoint, setCopiedEndpoint] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
+  const [rotating, setRotating] = useState(false);
+
   // Init from systemConfig
   useEffect(() => {
     if (!systemConfig) {
@@ -94,6 +105,40 @@ export default function SettingsPanel() {
 
     setLoaded(true);
   }, [systemConfig, loaded, loadSystemConfig]);
+
+  // Load deposition config
+  const loadDepConfig = async () => {
+    setDepLoading(true);
+    try {
+      const config = await fetchDepositionConfig();
+      setDepConfig(config);
+    } catch {
+      // config not available — backend may not be running
+    }
+    setDepLoading(false);
+  };
+  useEffect(() => { loadDepConfig(); }, []);
+
+  // Handler：复制到剪贴板
+  const copyToClipboard = async (text: string, setter: (v: boolean) => void) => {
+    await navigator.clipboard.writeText(text);
+    setter(true);
+    setTimeout(() => setter(false), 2000);
+  };
+
+  // Handler：轮换 Key
+  const handleRotateKey = async () => {
+    if (!confirm("轮换后旧 Key 立即失效，Skill 插件需要更新配置。确认轮换？")) return;
+    setRotating(true);
+    try {
+      const res = await rotateDepositionKey();
+      setDepConfig(prev => prev ? { ...prev, api_key: res.api_key } : prev);
+      showToast("API Key 已轮换", "success");
+    } catch {
+      showToast("轮换失败", "error");
+    }
+    setRotating(false);
+  };
 
   // Load Ollama models when provider is ollama
   useEffect(() => {
@@ -592,6 +637,116 @@ export default function SettingsPanel() {
               </p>
             </div>
           </div>
+        </div>
+
+        {/* External Push Config — Skill 插件 */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2.5">
+            <div className="h-7 w-7 rounded-lg bg-gradient-to-tr from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+              <Globe className="h-3.5 w-3.5 text-white" />
+            </div>
+            <h2 className="text-sm font-bold text-slate-700">外部对话收集</h2>
+            {depConfig && (
+              <span className="ml-auto text-[11px] font-medium text-slate-400">
+                已收集 {depConfig.entry_count} 条 · 待提炼 {depConfig.pending_insights} 条
+              </span>
+            )}
+          </div>
+
+          {depLoading ? (
+            <div className="p-6 space-y-4 animate-pulse">
+              <div className="h-4 bg-slate-100 rounded w-3/4" />
+              <div className="h-4 bg-slate-100 rounded w-1/2" />
+              <div className="h-4 bg-slate-100 rounded w-2/3" />
+            </div>
+          ) : depConfig ? (
+            <div className="p-6 space-y-5">
+              {/* 端点地址 */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">推送端点</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 truncate select-all">
+                    {depConfig.endpoint}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(depConfig.endpoint, setCopiedEndpoint)}
+                    className="flex-shrink-0 p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                    title="复制端点地址"
+                  >
+                    {copiedEndpoint ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400">Skill 插件推送对话到此地址</p>
+              </div>
+
+              {/* API Key */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">API Key</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 truncate select-all">
+                    {showKey ? depConfig.api_key : "●".repeat(32)}
+                  </code>
+                  <button
+                    onClick={() => setShowKey(!showKey)}
+                    className="flex-shrink-0 p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                    title={showKey ? "隐藏" : "显示"}
+                  >
+                    {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                  <button
+                    onClick={() => copyToClipboard(depConfig.api_key || "", setCopiedKey)}
+                    className="flex-shrink-0 p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                    title="复制 API Key"
+                  >
+                    {copiedKey ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                  <button
+                    onClick={handleRotateKey}
+                    disabled={rotating}
+                    className="flex-shrink-0 p-2 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 disabled:opacity-40 transition-colors"
+                    title="轮换 Key（旧 Key 立即失效）"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${rotating ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400">Key 仅限推送权限，泄露后可在此轮换</p>
+              </div>
+
+              {/* Claude Code 一键配置 */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Claude Code 配置
+                </label>
+                <p className="text-[10px] text-slate-400">
+                  在 Claude Code 终端中创建 <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">~/.claude/mindvaults/config.json</code>：
+                </p>
+                <div className="relative">
+                  <pre className="bg-slate-900 text-emerald-400 rounded-xl p-4 text-[11px] font-mono leading-relaxed overflow-x-auto">{`{
+  "endpoint": "${depConfig.endpoint}",
+  "api_key": "${depConfig.api_key}",
+  "enabled": false
+}`}</pre>
+                  <button
+                    onClick={() => {
+                      const snippet = `{\n  "endpoint": "${depConfig.endpoint}",\n  "api_key": "${depConfig.api_key}",\n  "enabled": false\n}`;
+                      copyToClipboard(snippet, setCopiedConfig);
+                    }}
+                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                    title="复制配置"
+                  >
+                    {copiedConfig ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  默认手动模式：在对话中使用 <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">/mindvaults push</code> 手动保存有价值的内容。如需自动收集，运行 <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">/mindvaults on</code> 开启
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 text-center text-sm text-slate-400">
+              无法加载外部推送配置，请确认后端服务已启动
+            </div>
+          )}
         </div>
 
         {/* Save Button */}

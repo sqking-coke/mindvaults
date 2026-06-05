@@ -1,16 +1,18 @@
 "use client";
 
 import React, { useState } from "react";
-import { Sparkles, Tag, Heart, Activity } from "lucide-react";
+import { Sparkles, Tag, Heart, Activity, Clock } from "lucide-react";
 import InsightReview from "@/components/insights/InsightReview";
+import SchedulerPanel from "@/components/insights/SchedulerPanel";
 
-type GovTab = "insights" | "concepts" | "health" | "monitor";
+type GovTab = "insights" | "concepts" | "health" | "monitor" | "scheduler";
 
 const TABS: { key: GovTab; label: string; icon: React.ReactNode; desc: string }[] = [
   { key: "insights", label: "知识审核", icon: <Sparkles className="h-4 w-4" />, desc: "审核对话提炼的知识点" },
   { key: "concepts", label: "概念管理", icon: <Tag className="h-4 w-4" />, desc: "术语抽取与关联图谱" },
   { key: "health", label: "健康中心", icon: <Heart className="h-4 w-4" />, desc: "知识库质量监控与治理" },
   { key: "monitor", label: "监控看板", icon: <Activity className="h-4 w-4" />, desc: "系统事件与告警记录" },
+  { key: "scheduler", label: "定时任务", icon: <Clock className="h-4 w-4" />, desc: "定时提炼与清理任务的状态和手动触发" },
 ];
 
 function PlaceholderPanel({ title, icon, description }: { title: string; icon: React.ReactNode; description: string }) {
@@ -110,6 +112,7 @@ export default function ManagePage() {
               description="统一事件总线：提炼任务状态、检索异常、系统资源告警，所有关键事件一览无余。"
             />
           )}
+          {activeTab === "scheduler" && <SchedulerPanel />}
         </div>
       </div>
     </>

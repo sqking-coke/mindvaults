@@ -21,6 +21,10 @@ import type {
   Insight,
   InsightListResponse,
   InsightExtractionStats,
+  DepositionConfig,
+  KeyRotateResponse,
+  ExternalEntryItem,
+  ExternalEntryListResponse,
 } from "@/types/api";
 import { refChunkToCitation } from "@/types/api";
 import { formatDateTime, formatTime } from "@/utils/date";
@@ -355,6 +359,42 @@ export async function fetchSystemInfo(signal?: AbortSignal): Promise<SystemInfo>
   return api.get<SystemInfo>("/api/v1/health/system", signal);
 }
 
+// ==================== 外部推送设置 API (#17) ====================
+
+export async function fetchDepositionConfig(signal?: AbortSignal): Promise<DepositionConfig> {
+  return api.get<DepositionConfig>("/api/v1/kb/deposition/config", signal);
+}
+
+export async function rotateDepositionKey(signal?: AbortSignal): Promise<KeyRotateResponse> {
+  return api.post<KeyRotateResponse>("/api/v1/kb/deposition/key/rotate", undefined, signal);
+}
+
+export async function fetchExternalEntries(
+  kbId = 1,
+  status?: string,
+  page = 1,
+  pageSize = 20,
+  signal?: AbortSignal,
+): Promise<ExternalEntryListResponse> {
+  const params = new URLSearchParams({ kb_id: String(kbId), page: String(page), page_size: String(pageSize) });
+  if (status) params.set("status", status);
+  return api.get<ExternalEntryListResponse>(`/api/v1/kb/external/entries?${params}`, signal);
+}
+
+export async function skipExternalEntry(
+  entryId: number,
+  signal?: AbortSignal,
+): Promise<{ id: number; status: string }> {
+  return api.post<{ id: number; status: string }>(`/api/v1/kb/external/entries/${entryId}/skip`, undefined, signal);
+}
+
+export async function deleteExternalEntry(
+  entryId: number,
+  signal?: AbortSignal,
+): Promise<{ deleted: number }> {
+  return api.del<{ deleted: number }>(`/api/v1/kb/external/entries/${entryId}`, signal);
+}
+
 // ==================== 对话知识沉淀 API (#16) ====================
 
 export async function fetchInsights(
@@ -362,11 +402,13 @@ export async function fetchInsights(
   status?: string,
   page = 1,
   pageSize = 20,
+  sourceType?: string,
   signal?: AbortSignal,
 ): Promise<InsightListResponse> {
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
   if (kbId !== undefined) params.set("kb_id", String(kbId));
   if (status) params.set("status", status);
+  if (sourceType) params.set("source_type", sourceType);
   return api.get<InsightListResponse>(`/api/v1/kb/insights?${params}`, signal);
 }
 
@@ -409,4 +451,20 @@ export async function saveInsight(
 ): Promise<Insight> {
   const params = new URLSearchParams({ qa_record_id: String(qaRecordId), kb_id: String(kbId) });
   return api.post<Insight>(`/api/v1/kb/chat/save-insight?${params}`, undefined, signal);
+}
+
+// ==================== 定时任务状态 ====================
+
+export interface ScheduleStatus {
+  extraction_enabled: boolean;
+  extraction_schedule: string;
+  next_extraction_at: string;
+  next_cleanup_at: string;
+  pending_native_count: number;
+  pending_external_count: number;
+  stale_external_count: number;
+}
+
+export async function fetchScheduleStatus(signal?: AbortSignal): Promise<ScheduleStatus> {
+  return api.get<ScheduleStatus>("/api/v1/kb/insights/schedule-status", signal);
 }

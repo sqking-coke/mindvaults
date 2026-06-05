@@ -51,7 +51,7 @@ flowchart LR
 ```
 ---
 
-## 知识库
+## 知识中心
 <p align="center">
   <img src="public/screenshots/kb.jpg" alt="mindvaults 知识库管理" />
 </p>
@@ -61,11 +61,30 @@ flowchart LR
   <img src="public/screenshots/thinking.jpg" alt="mindvaults 智能推理过程" />
 </p>
 
+## 返回结果
+<p align="center">
+  <img src="public/screenshots/result.jpg" alt="mindvaults 命中结果" />
+</p>
+
 ## 引用溯源
 <p align="center">
   <img src="public/screenshots/citation.jpg" alt="mindvaults 引用溯源" />
 </p>
 
+## 运维管理
+<p align="center">
+  <img src="public/screenshots/ops.jpg" alt="mindvaults 运维管理" />
+</p>
+
+## 问答统计
+<p align="center">
+  <img src="public/screenshots/stats.jpg" alt="mindvaults 问答统计" />
+</p>
+
+## 数据治理
+<p align="center">
+  <img src="public/screenshots/gov.jpg" alt="mindvaults 数据治理" />
+</p>
 
 ## 快速开始
 
