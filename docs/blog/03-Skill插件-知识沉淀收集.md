@@ -1,6 +1,6 @@
-# Skill 插件：把 Claude Code 的每一次对话，自动沉淀到你的知识库
+# mindvaults-glean：把 Claude Code 的每一次对话，自动沉淀到你的知识库
 
-> mindvaults 的对话知识沉淀系统只能收集平台自带的问答。本文记录 Skill 插件的技术方案——如何在 Claude Code 中安装一个插件，让外部 LLM 平台的对话自动推送到你的本地知识库，走统一的提炼 + 审核管道。
+> mindvaults 的对话知识沉淀系统只能收集平台自带的问答。本文记录 **mindvaults-glean** 插件的技术方案——如何在 Claude Code 中安装一个 Skill 插件，让外部 LLM 平台的对话自动推送到你的本地知识库，走统一的提炼 + 审核管道。
 
 
 ## 一、问题
@@ -10,7 +10,7 @@
 但现实是——大量高价值的 AI 对话**不发生在自己的平台里**。用户在 Claude Code 里讨论架构设计，在 Copilot CLI 里调试代码，在 ChatGPT 里研究技术方案。这些对话散落在各个平台，想沉淀下来只能手动复制粘贴。
 
 ```
-Claude Code   ──── 对话结束，知识流失
+Claude Code  ──── 对话结束，知识流失
 Copilot CLI  ──── 对话结束，知识流失
 ChatGPT      ──── 对话结束，知识流失
 
@@ -24,12 +24,12 @@ mindvaults   ──── 只有内置 Chat 的对话能被收集
 
 ### 2.1 核心思路
 
-不给每个平台做独立 SDK，而是做一个 Claude Code **Skill 插件**。用户安装后，每次对话结束，Stop hook 自动收集本轮 QA 对，POST 到自己的 mindvaults 实例。
+不给每个平台做独立 SDK，而是做一个 Claude Code **Skill 插件——mindvaults-glean**。用户安装后，每次对话结束，Stop hook 自动收集本轮 QA 对，POST 到自己的 mindvaults 实例。
 
 为什么不先做独立集成而是走插件？三个原因：
 
 1. **零侵入**：Skill 是 Claude Code 的原生扩展机制，不需要改 Claude Code 源码
-2. **用户可控**：`/mindvaults on` 开启，`/mindvaults off` 暂停，完全自主
+2. **用户可控**：`/mindvaults-glean on` 开启，`/mindvaults-glean off` 暂停，完全自主
 3. **复用管道**：推送只是入口，后续提炼、去重、审核、入库完全复用现有的 insight 管道
 
 ### 2.2 整体架构
@@ -67,13 +67,13 @@ mindvaults   ──── 只有内置 Chat 的对话能被收集
 └─────────────────────────────────────────────────────────────┘
 ```
 
-本地 QA 和外部 Skill 统一走系统库，不再额外创建沉淀 KB。区别仅在于数据来源——前者来自 `kb_qa_records`，后者来自 `kb_external_entries`。
+本地 QA 和外部 Skill 统一走系统库，不再额外创建沉淀 KB。区别仅在于数据来源——前者来自 `kb_qa_records`，后者来自 `kb_external_entries`。两条来源汇入同一条提炼管道后，`kb_insights.source_type` 字段（`native` | `external`）标记最终来源，实现端到端可追溯——在审核中心可随时知道一条知识点是来自内部对话还是外部 Skill 推送。
 
 ### 2.3 为什么推送是静默的
 
 推送全程不打断对话。成功不提示（用户不需要知道每条 QA 都推送了），失败不阻塞（记录到 pending 队列，下次重试）。
 
-唯一可见的反馈是 `/mindvaults status` 命令——用户主动查询时才显示"今日已推送 15 条"。
+唯一可见的反馈是 `/mindvaults-glean status` 命令——用户主动查询时才显示"今日已推送 15 条"。
 
 
 ## 三、Skill 插件设计
@@ -131,10 +131,10 @@ exit 0  # 始终返回 0，不打断对话
 
 | 命令 | 功能 |
 |------|------|
-| `/mindvaults on` | 开启自动收集 |
-| `/mindvaults off` | 暂停收集 |
-| `/mindvaults push` | 手动推送当前会话 |
-| `/mindvaults status` | 查看今日推送统计 |
+| `/mindvaults-glean on` | 开启自动收集 |
+| `/mindvaults-glean off` | 暂停收集 |
+| `/mindvaults-glean push` | 手动推送当前会话 |
+| `/mindvaults-glean status` | 查看今日推送统计 |
 
 ### 3.4 用户配置文件
 
@@ -251,6 +251,16 @@ CREATE TABLE kb_external_entries (
 | 审核 | 同一个审核中心 | ← 复用 |
 | 入库 | 审核通过 → kb_chunks | ← 复用 |
 
+提炼阶段的端到端来源追溯通过 `kb_insights` 的两个字段实现：
+
+| 字段 | 说明 |
+|------|------|
+| `source_type` | `native`（本地 QA）或 `external`（外部 Skill） |
+| `source_qa_ids` | 来源 QA 记录 ID 列表（native） |
+| `external_entry_ids` | 来源外部条目 ID 列表（external） |
+
+审核中心据此提供来源过滤（全部来源 / 本地 QA / 外部收集），用户可以在数据治理页面按来源维度筛选待审核知识点，便于区分内部对话提炼和 Skill 推送内容的审核优先级。
+
 
 ## 六、异常场景全覆盖
 
@@ -292,13 +302,20 @@ Key 轮换端点 `POST /api/v1/kb/deposition/key/rotate`，旧 Key 立即失效�
 
 ## 八、安装与分发
 
-### 8.1 从 GitHub 安装
+### 方式一：从 GitHub 安装（推荐）
 
 ```bash
-/plugin install github.com/your-username/mindvaults-glean
+# 在 Claude Code 中运行
+/plugin install github.com/sqking-coke/mindvaults-glean
 ```
 
-### 8.2 首次配置
+### 方式二：手动安装
+```bash
+mkdir -p ~/.claude/skills/mindvaults-glean
+cp -r SKILL.md hooks/ commands/ references/ .claude-plugin/ ~/.claude/skills/mindvaults-glean/
+```
+
+### 首次配置
 
 在 mindvaults 设置页获取 endpoint 和 API Key：
 
@@ -307,7 +324,7 @@ Key 轮换端点 `POST /api/v1/kb/deposition/key/rotate`，旧 Key 立即失效�
 /mindvaults on
 ```
 
-### 8.3 验证
+### 验证
 
 ```bash
 /mindvaults status
