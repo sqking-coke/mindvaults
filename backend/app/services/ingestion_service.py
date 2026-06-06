@@ -132,6 +132,35 @@ async def ingest_document(
         except Exception:
             logger.warning(f"centroid_update_after_ingestion_failed kb_id={doc.kb_id}")
 
+        # 自动抽取概念术语（非阻塞）
+        try:
+            from app.services.concept_service import extract_concepts
+            from app.config import settings as app_settings
+
+            # 查询本次摄入的 chunk 记录
+            chunk_rows = (
+                await db.execute(
+                    select(KbChunk.id, KbChunk.content)
+                    .where(KbChunk.document_id == doc_id)
+                )
+            ).all()
+            extract_payload = [
+                {"chunk_id": cid, "content": ccontent, "kb_id": doc.kb_id}
+                for cid, ccontent in chunk_rows
+            ]
+            if extract_payload:
+                await extract_concepts(
+                    db, extract_payload, sys_cfg=sys_cfg,
+                    provider=sys_cfg.llm_provider if sys_cfg else None,
+                    base_url=sys_cfg.llm_base_url if sys_cfg else None,
+                    model=sys_cfg.llm_model if sys_cfg else None,
+                    api_key=sys_cfg.llm_api_key if sys_cfg else None,
+                )
+        except Exception:
+            logger.warning(
+                f"concept_extraction_after_ingestion_failed doc_id={doc_id} kb_id={doc.kb_id}"
+            )
+
     except Exception as exc:
         logger.error(f"doc_ingestion_failed doc_id={doc_id} error=\"{exc}\"")
         await db.rollback()

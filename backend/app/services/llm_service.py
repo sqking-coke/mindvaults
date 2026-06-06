@@ -20,7 +20,7 @@ async def generate_stream(
 ) -> AsyncGenerator[str, None]:
     """调用 LLM 流式生成，支持动态传入推理参数以实现热更新。"""
     active_provider = provider if provider is not None else settings.LLM_PROVIDER
-    
+
     if active_provider == "openai":
         async for token in _generate_openai(
             system_prompt, user_prompt, base_url, model, api_key, temperature
@@ -31,6 +31,28 @@ async def generate_stream(
             system_prompt, user_prompt, base_url, model, temperature
         ):
             yield token
+
+
+async def generate(
+    system_prompt: str,
+    user_prompt: str,
+    provider: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: float = 0.0,
+) -> str:
+    """调用 LLM 非流式生成，返回完整响应文本。
+
+    用于概念抽取等需要完整 JSON 响应的场景。
+    temperature 默认为 0.0，保证确定性输出。
+    """
+    active_provider = provider if provider is not None else settings.LLM_PROVIDER
+
+    if active_provider == "openai":
+        return await _generate_openai_sync(system_prompt, user_prompt, base_url, model, api_key, temperature)
+    else:
+        return await _generate_ollama_sync(system_prompt, user_prompt, base_url, model, temperature)
 
 
 async def _generate_ollama(
@@ -135,4 +157,85 @@ async def _generate_openai(
         if status in (401, 403):
             raise LLMConfigRequiredError("大模型 API Key 无效，请检查设置")
         logger.error(f"llm_call_failed provider=openai model={model} error=\"{exc}\"")
+        raise LLMCallFailedError(f"LLM 调用失败（model: {active_model}）: {exc}")
+
+
+async def _generate_ollama_sync(
+    system_prompt: str,
+    user_prompt: str,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    temperature: float = 0.0,
+) -> str:
+    """Ollama 非流式 Chat API (POST /api/chat, stream=false)."""
+    active_base_url = base_url if base_url is not None else settings.LLM_BASE_URL
+    active_model = model if model is not None else settings.LLM_MODEL
+
+    url = f"{active_base_url.rstrip('/')}/api/chat"
+    payload = {
+        "model": active_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+        "options": {"temperature": temperature},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("message", {}).get("content", "")
+    except httpx.HTTPError as exc:
+        logger.error(f"llm_call_failed provider=ollama model={active_model} error=\"{exc}\"")
+        raise LLMCallFailedError(f"LLM 调用失败（model: {active_model}）: {exc}")
+
+
+async def _generate_openai_sync(
+    system_prompt: str,
+    user_prompt: str,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: float = 0.0,
+) -> str:
+    """OpenAI 兼容 Chat Completions API, 非流式 (stream=false)."""
+    active_base_url = base_url if base_url is not None else settings.LLM_BASE_URL
+    active_model = model if model is not None else settings.LLM_MODEL
+    active_api_key = api_key if api_key is not None else settings.LLM_API_KEY
+
+    if not active_api_key:
+        raise LLMConfigRequiredError("大模型 API Key 未配置，请在设置页面添加")
+
+    base = active_base_url.rstrip('/')
+    url = f"{base}/chat/completions" if base.endswith("/v1") else f"{base}/v1/chat/completions"
+
+    headers = {"Content-Type": "application/json"}
+    if active_api_key:
+        headers["Authorization"] = f"Bearer {active_api_key}"
+
+    payload = {
+        "model": active_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+        "temperature": temperature,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("choices", [{}])
+            return choices[0].get("message", {}).get("content", "")
+    except httpx.HTTPError as exc:
+        status = getattr(exc, "response", None) and getattr(exc.response, "status_code", None)
+        if status in (401, 403):
+            raise LLMConfigRequiredError("大模型 API Key 无效，请检查设置")
+        logger.error(f"llm_call_failed provider=openai model={active_model} error=\"{exc}\"")
         raise LLMCallFailedError(f"LLM 调用失败（model: {active_model}）: {exc}")

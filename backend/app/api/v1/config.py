@@ -64,6 +64,10 @@ async def get_system_config(db: AsyncSession = Depends(get_db)):
         "insight_min_answer_length": cfg.insight_min_answer_length,
         "insight_dedup_threshold": cfg.insight_dedup_threshold,
         "insight_auto_approve_confidence": cfg.insight_auto_approve_confidence,
+        "concept_extraction_enabled": getattr(cfg, "concept_extraction_enabled", True),
+        "concept_min_chunk_length": getattr(cfg, "concept_min_chunk_length", 500),
+        "concept_max_per_round": getattr(cfg, "concept_max_per_round", 5),
+        "concept_summary_max_length": getattr(cfg, "concept_summary_max_length", 200),
     })
 
 
@@ -121,6 +125,16 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
     if payload.insight_auto_approve_confidence is not None:
         cfg.insight_auto_approve_confidence = payload.insight_auto_approve_confidence
 
+    # 概念术语关联配置
+    if payload.concept_extraction_enabled is not None:
+        cfg.concept_extraction_enabled = payload.concept_extraction_enabled
+    if payload.concept_min_chunk_length is not None:
+        cfg.concept_min_chunk_length = payload.concept_min_chunk_length
+    if payload.concept_max_per_round is not None:
+        cfg.concept_max_per_round = payload.concept_max_per_round
+    if payload.concept_summary_max_length is not None:
+        cfg.concept_summary_max_length = payload.concept_summary_max_length
+
     await db.commit()
     await db.refresh(cfg)
 
@@ -148,6 +162,10 @@ async def update_system_config(payload: SystemConfigRequest, db: AsyncSession = 
         "insight_min_answer_length": cfg.insight_min_answer_length,
         "insight_dedup_threshold": cfg.insight_dedup_threshold,
         "insight_auto_approve_confidence": cfg.insight_auto_approve_confidence,
+        "concept_extraction_enabled": getattr(cfg, "concept_extraction_enabled", True),
+        "concept_min_chunk_length": getattr(cfg, "concept_min_chunk_length", 500),
+        "concept_max_per_round": getattr(cfg, "concept_max_per_round", 5),
+        "concept_summary_max_length": getattr(cfg, "concept_summary_max_length", 200),
     })
 
 

@@ -29,6 +29,12 @@ class SystemConfigResponse(BaseModel):
     insight_dedup_threshold: float = Field(0.92, description="向量去重相似度阈值")
     insight_auto_approve_confidence: float = Field(0.95, description="自动通过的置信度阈值")
 
+    # 概念术语关联配置
+    concept_extraction_enabled: bool = Field(True, description="启用概念自动抽取")
+    concept_min_chunk_length: int = Field(500, description="小于此长度的 chunk 跳过抽取")
+    concept_max_per_round: int = Field(5, description="每轮 RAG 最多注入几个概念")
+    concept_summary_max_length: int = Field(200, description="注入上下文时的摘要最大字符数")
+
     class Config:
         from_attributes = True
 
@@ -59,3 +65,9 @@ class SystemConfigRequest(BaseModel):
     insight_min_answer_length: Optional[int] = Field(None, ge=50)
     insight_dedup_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
     insight_auto_approve_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+    # 概念术语关联配置
+    concept_extraction_enabled: Optional[bool] = Field(None)
+    concept_min_chunk_length: Optional[int] = Field(None, ge=100)
+    concept_max_per_round: Optional[int] = Field(None, ge=1, le=20)
+    concept_summary_max_length: Optional[int] = Field(None, ge=50, le=500)

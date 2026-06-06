@@ -40,6 +40,12 @@ class SystemConfig(Base):
     insight_dedup_threshold: Mapped[float] = mapped_column(Float, default=0.92, nullable=False)
     insight_auto_approve_confidence: Mapped[float] = mapped_column(Float, default=0.95, nullable=False)
 
+    # 概念术语关联配置 (#18)
+    concept_extraction_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    concept_min_chunk_length: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
+    concept_max_per_round: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    concept_summary_max_length: Mapped[int] = mapped_column(Integer, default=200, nullable=False)
+
     # 外部 Skill 插件推送认证 Key
     external_api_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 

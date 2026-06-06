@@ -61,12 +61,34 @@ async def _build_history(db: AsyncSession, session_id: int) -> str:
     return "\n".join(parts)
 
 
-def _build_context(chunks: list[RefChunk]) -> str:
-    """将检索到的切片组装成 LLM 上下文。"""
+async def _build_context(db: AsyncSession, chunks: list[RefChunk], sys_cfg=None) -> str:
+    """将检索到的切片组装成 LLM 上下文，注入关联概念摘要。"""
     parts = []
+
+    # 查询关联概念摘要
+    chunk_ids = [c.chunk_id for c in chunks]
+    try:
+        from app.services.concept_service import get_concepts_for_chunks, _get_concept_config
+        cfg = _get_concept_config(sys_cfg)
+        concepts = await get_concepts_for_chunks(
+            db, chunk_ids,
+            max_concepts=cfg.get("max_per_round", 5),
+            summary_max_length=cfg.get("summary_max_length", 200),
+        )
+    except Exception:
+        concepts = {}
+
+    # 先放术语说明
+    if concepts:
+        parts.append("[术语说明]")
+        for name, summary in concepts.items():
+            parts.append(f"- {name}: {summary}")
+        parts.append("")
+
+    # 再放文档内容
     for i, c in enumerate(chunks, 1):
         parts.append(f"[{i}] 来源: {c.doc_name}\n{c.content}")
-    return "\n\n".join(parts)
+    return "\n".join(parts)
 
 
 class _SafeJsonEncoder(json.JSONEncoder):
@@ -328,7 +350,7 @@ async def chat_stream(
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
 
-    context = _build_context(chunks)
+    context = await _build_context(db, chunks, sys_cfg)
     history = await _build_history(db, session.id)
     user_prompt = f"参考文档：\n\n{context}\n{history}\n用户问题：{req.question}\n\n请回答："
 

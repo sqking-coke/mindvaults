@@ -360,6 +360,10 @@ export interface SystemConfig {
   insight_min_answer_length: number;
   insight_dedup_threshold: number;
   insight_auto_approve_confidence: number;
+  concept_extraction_enabled: boolean;
+  concept_min_chunk_length: number;
+  concept_max_per_round: number;
+  concept_summary_max_length: number;
 }
 
 export interface SystemConfigRequest {
@@ -385,6 +389,63 @@ export interface SystemConfigRequest {
   insight_min_answer_length?: number;
   insight_dedup_threshold?: number;
   insight_auto_approve_confidence?: number;
+  concept_extraction_enabled?: boolean;
+  concept_min_chunk_length?: number;
+  concept_max_per_round?: number;
+  concept_summary_max_length?: number;
+}
+
+// ==================== 概念术语关联 (#18) ====================
+
+export interface ConceptChunkRef {
+  chunk_id: number;
+  doc_name: string;
+  content_preview: string;
+  relevance: number;
+  page?: number;
+}
+
+export interface Concept {
+  id: number;
+  kb_id: number;
+  name: string;
+  aliases: string[] | null;
+  definition: string;
+  summary: string | null;
+  status: string;
+  confidence: number;
+  source_chunk_ids: number[] | null;
+  chunk_count: number;
+  related_concepts: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConceptDetail extends Concept {
+  chunks: ConceptChunkRef[];
+}
+
+export interface ConceptListData {
+  items: Concept[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ConceptUpdateRequest {
+  definition?: string;
+  summary?: string;
+  aliases?: string[];
+  status?: string;
+}
+
+export interface ConceptManualCreateRequest {
+  kb_id: number;
+  name: string;
+  definition: string;
+  summary?: string;
+  aliases?: string[];
+  status?: string;
 }
 
 // ==================== Obsidian Vault 导入 API 契约 ====================

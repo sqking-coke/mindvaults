@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Sparkles, Tag, Heart, Activity, Clock } from "lucide-react";
 import InsightReview from "@/components/insights/InsightReview";
 import SchedulerPanel from "@/components/insights/SchedulerPanel";
+import ConceptPanel from "@/components/concepts/ConceptPanel";
 
 type GovTab = "insights" | "concepts" | "health" | "monitor" | "scheduler";
 
@@ -91,13 +92,7 @@ export default function ManagePage() {
 
           {/* Tab Content */}
           {activeTab === "insights" && <InsightReview />}
-          {activeTab === "concepts" && (
-            <PlaceholderPanel
-              title="概念管理"
-              icon={<Tag className="h-8 w-8" />}
-              description="自动从文档中抽取术语、建立概念关联图谱、支持 hover 即时解释，让 RAG 上下文更精准。"
-            />
-          )}
+          {activeTab === "concepts" && <ConceptPanel />}
           {activeTab === "health" && (
             <PlaceholderPanel
               title="健康中心"
