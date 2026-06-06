@@ -10,9 +10,11 @@ import re
 from collections import defaultdict
 
 from loguru import logger
-from sqlalchemy import select, func, text, delete
+from sqlalchemy import select, func, text, delete, type_coerce
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import ARRAY
+from pgvector.sqlalchemy import Vector
 
 from app.models.concept import KbConcept, KbChunkConcept
 from app.models.chunk import KbChunk
@@ -24,18 +26,28 @@ from app.services.embedding_service import embed_text, resolve_embedding_config
 
 # ── LLM 抽取 System Prompt ────────────────────────────────────
 
-EXTRACTION_SYSTEM_PROMPT = """你是一个术语抽取助手。从以下文档片段中提取专业术语，为每个术语生成简洁定义。
+EXTRACTION_SYSTEM_PROMPT = """你是一个领域概念抽取助手。从以下文档片段中提取**顶级领域概念**，为每个概念生成定义。
 
-要求：
-- 只提取领域特定的专业术语，不提取通用词汇（如"文档""系统""用户"）
-- 定义长度 ≤ 500 字，自包含，不需要上下文就能理解
-- 同时生成一条 ≤ 100 字的摘要（用于注入 LLM 上下文）
-- 如果片段没有值得提取的术语，返回空数组 []
-- 术语要有别名（英文缩写、常见别称）
-- 返回 JSON 数组，格式：
+核心原则：
+- 只提取值得在领域课程中教学的概念（"如果你要教别人理解这个领域，必须解释哪些概念？"）
+- 不要提取：API 参数名、数据表名、配置项名、普通名词、显而易见的功能描述
+- 同一概念的多种称呼（全称/简称/英文）合并为 aliases，不要单独列一条
+- 提取标准：这个概念的出现，对理解整个文档有实质帮助
+
+定义要求：
+- 自包含、≤500 字，不依赖上下文就能理解
+- 能清晰区分于其他概念（如果两个概念的定义高度重叠，合并为一个）
+- 同时生成 ≤100 字摘要（注入 LLM 上下文的精简版）
+
+格式：
+- 每 chunk 最多 5 个概念，宁缺毋滥
+- 如果没有值得提取的概念，返回 []
+- confidence: 0-1，表达你对这个概念"独立存在价值"的信心。定义模糊/边界不清的≤0.7
+
+返回 JSON 数组：
 [{
-  "name": "术语中文名",
-  "aliases": ["英文缩写", "常见别称"],
+  "name": "概念名",
+  "aliases": ["英文缩写", "别称"],
   "definition": "完整定义，≤500字",
   "summary": "一句话摘要，≤100字",
   "confidence": 0.9
@@ -85,6 +97,7 @@ CONCEPT_EXTRACTION_ENABLED_DEFAULT = True
 CONCEPT_MIN_CHUNK_LENGTH_DEFAULT = 500
 CONCEPT_MAX_PER_ROUND_DEFAULT = 5
 CONCEPT_SUMMARY_MAX_LENGTH_DEFAULT = 200
+CONCEPT_SIMILARITY_THRESHOLD_DEFAULT = 0.85
 
 
 def _get_concept_config(sys_cfg: SystemConfig | None) -> dict:
@@ -95,13 +108,55 @@ def _get_concept_config(sys_cfg: SystemConfig | None) -> dict:
             "min_chunk_length": CONCEPT_MIN_CHUNK_LENGTH_DEFAULT,
             "max_per_round": CONCEPT_MAX_PER_ROUND_DEFAULT,
             "summary_max_length": CONCEPT_SUMMARY_MAX_LENGTH_DEFAULT,
+            "similarity_threshold": CONCEPT_SIMILARITY_THRESHOLD_DEFAULT,
         }
     return {
         "enabled": getattr(sys_cfg, "concept_extraction_enabled", CONCEPT_EXTRACTION_ENABLED_DEFAULT),
         "min_chunk_length": getattr(sys_cfg, "concept_min_chunk_length", CONCEPT_MIN_CHUNK_LENGTH_DEFAULT),
         "max_per_round": getattr(sys_cfg, "concept_max_per_round", CONCEPT_MAX_PER_ROUND_DEFAULT),
         "summary_max_length": getattr(sys_cfg, "concept_summary_max_length", CONCEPT_SUMMARY_MAX_LENGTH_DEFAULT),
+        "similarity_threshold": getattr(sys_cfg, "concept_similarity_threshold", CONCEPT_SIMILARITY_THRESHOLD_DEFAULT),
     }
+
+
+# ── 语义去重 ─────────────────────────────────────────────────
+
+async def _find_similar_concept(
+    db: AsyncSession,
+    kb_id: int,
+    embedding: list[float],
+    threshold: float,
+) -> KbConcept | None:
+    """用 pgvector cosine_distance 查询同 KB 下语义最相似的已有概念。
+
+    similarity > threshold 时返回最相似概念，否则返回 None。
+    embedding 为 None 时直接返回 None。
+    """
+    if embedding is None:
+        return None
+
+    vec = type_coerce(embedding, Vector(1024))
+    similarity_expr = 1.0 - func.cosine_distance(KbConcept.embedding, vec)
+
+    result = (
+        await db.execute(
+            select(KbConcept, similarity_expr.label("similarity"))
+            .where(
+                KbConcept.kb_id == kb_id,
+                KbConcept.embedding.isnot(None),
+            )
+            .order_by(similarity_expr.desc())
+            .limit(1)
+        )
+    ).first()
+
+    if result is None:
+        return None
+
+    concept, similarity = result
+    if float(similarity) >= threshold:
+        return concept
+    return None
 
 
 # ── 抽取主流程 ──────────────────────────────────────────────
@@ -173,12 +228,18 @@ async def extract_concepts(
             f"chunk_len={len(content)} terms={len(terms)}"
         )
 
-        # 处理每个术语
-        positions_global: list[list[int]] = []  # 全局位置（按术语在 content 中出现的位置）
+        # 处理每个术语（先按 lower(name) 去重，避免 LLM 返回重复术语）
+        seen_names: set[str] = set()
         for term in terms:
             name = term.get("name", "").strip()
             if not name:
                 continue
+
+            # 同 chunk 内去重（LLM 可能返回相同术语的不同表述）
+            name_key = name.lower()
+            if name_key in seen_names:
+                continue
+            seen_names.add(name_key)
 
             aliases = term.get("aliases", []) or []
             definition = term.get("definition", "").strip()
@@ -233,7 +294,7 @@ async def extract_concepts(
                     existing.source_chunk_ids = merged_sources
                     concept = existing
             else:
-                # 新概念
+                # 新概念 — 先计算 embedding
                 try:
                     concept_embedding = await embed_text(
                         f"{name}: {definition}",
@@ -248,24 +309,83 @@ async def extract_concepts(
                     )
                     concept_embedding = None
 
-                concept = KbConcept(
-                    kb_id=kb_id,
-                    name=name,
-                    aliases=aliases,
-                    definition=definition,
-                    summary=summary,
-                    embedding=concept_embedding,
-                    source_chunk_ids=[chunk_id],
-                    status="auto",
-                    confidence=confidence,
-                )
-                db.add(concept)
-                await db.flush()
-                total_created += 1
-                logger.info(
-                    f"concept_created name=\"{name}\" kb_id={kb_id} "
-                    f"confidence={confidence}"
-                )
+                # 语义去重：用 embedding 查相似概念，避免近义词碎片
+                similar = await _find_similar_concept(
+                    db, kb_id, concept_embedding, cfg["similarity_threshold"],
+                ) if concept_embedding else None
+
+                if similar:
+                    # 语义接近 → 合并而非新建
+                    if confidence > similar.confidence:
+                        similar.definition = definition
+                        similar.summary = summary or similar.summary
+                        similar.confidence = confidence
+                    # 将新名称加入 aliases（如果不重复）
+                    if name.lower() != similar.name.lower():
+                        similar.aliases = list(set((similar.aliases or []) + [name]))
+                    similar.aliases = list(set((similar.aliases or []) + aliases))
+                    merged_sources = list(set((similar.source_chunk_ids or []) + [chunk_id]))
+                    similar.source_chunk_ids = merged_sources
+                    concept = similar
+                    total_updated += 1
+                    logger.info(
+                        f"concept_semantic_merged name=\"{name}\" "
+                        f"→ existing=\"{similar.name}\" id={similar.id}"
+                    )
+                    # 原 concept 对象未使用，跳过后续创建
+                    del concept_embedding
+                else:
+                    # 真正的新概念
+                    concept = KbConcept(
+                        kb_id=kb_id,
+                        name=name,
+                        aliases=aliases,
+                        definition=definition,
+                        summary=summary,
+                        embedding=concept_embedding,
+                        source_chunk_ids=[chunk_id],
+                        status="auto",
+                        confidence=confidence,
+                    )
+                    # 用 savepoint 隔离当前 insert，失败时仅回滚此条，不影响已创建的概念
+                    sp = await db.begin_nested()
+                    db.add(concept)
+                    try:
+                        await db.flush()
+                    except IntegrityError:
+                        await sp.rollback()
+                        # 去重未命中：重新查询 DB 中已存在的同名记录
+                        existing2 = (
+                            await db.execute(
+                                select(KbConcept).where(
+                                    KbConcept.kb_id == kb_id,
+                                    func.lower(KbConcept.name) == name.lower(),
+                                )
+                            )
+                        ).scalar_one_or_none()
+                        if existing2 is None:
+                            logger.error(
+                                f"concept_dupe_unresolvable name=\"{name}\" kb_id={kb_id}"
+                            )
+                            continue
+                        if confidence > existing2.confidence:
+                            existing2.definition = definition
+                            existing2.summary = summary or existing2.summary
+                            existing2.aliases = list(set((existing2.aliases or []) + aliases))
+                            existing2.confidence = confidence
+                        merged_sources = list(set((existing2.source_chunk_ids or []) + [chunk_id]))
+                        existing2.source_chunk_ids = merged_sources
+                        concept = existing2
+                        total_updated += 1
+                        logger.info(
+                            f"concept_dupe_recovered name=\"{name}\" id={existing2.id}"
+                        )
+                    else:
+                        total_created += 1
+                        logger.info(
+                            f"concept_created name=\"{name}\" kb_id={kb_id} "
+                            f"confidence={confidence}"
+                        )
 
             # 关联 chunk ↔ concept
             existing_link = (
@@ -288,19 +408,14 @@ async def extract_concepts(
                 )
                 db.add(link)
 
-        # 每个 chunk 后 flush，避免单次失败全部回滚
+        # 每个 chunk 后 commit，概念增量可见；失败时仅回滚当前 chunk，不影响已完成部分
         try:
-            await db.flush()
+            await db.commit()
         except Exception as exc:
-            logger.warning(f"concept_extraction_flush_failed chunk_id={chunk_id} error=\"{exc}\"")
+            logger.warning(f"concept_extraction_commit_failed chunk_id={chunk_id} error=\"{exc}\"")
+            await db.rollback()
             # 继续下一个 chunk
             continue
-
-    try:
-        await db.commit()
-    except Exception as exc:
-        logger.warning(f"concept_extraction_commit_failed error=\"{exc}\"")
-        await db.rollback()
 
     logger.info(
         f"concept_extraction_completed chunks={len(chunks)} "
@@ -316,13 +431,13 @@ async def get_concepts_for_chunks(
     chunk_ids: list[int],
     max_concepts: int = CONCEPT_MAX_PER_ROUND_DEFAULT,
     summary_max_length: int = CONCEPT_SUMMARY_MAX_LENGTH_DEFAULT,
-) -> dict[str, str]:
-    """查询 chunk 关联的概念摘要，用于 RAG 上下文注入。
+) -> list[dict]:
+    """查询 chunk 关联的概念，用于 RAG 上下文注入和前端 hover 卡片。
 
-    returns: {concept_name: summary_text} — 去重后最多 max_concepts 个
+    returns: [{"name": str, "summary": str, "aliases": list[str]}] — 去重后最多 max_concepts 个
     """
     if not chunk_ids:
-        return {}
+        return []
 
     result = (
         await db.execute(
@@ -330,6 +445,7 @@ async def get_concepts_for_chunks(
                 KbConcept.name,
                 KbConcept.summary,
                 KbConcept.definition,
+                KbConcept.aliases,
                 func.max(KbChunkConcept.relevance).label("max_relevance"),
             )
             .join(KbChunkConcept, KbChunkConcept.concept_id == KbConcept.id)
@@ -340,15 +456,20 @@ async def get_concepts_for_chunks(
         )
     ).all()
 
-    concepts: dict[str, str] = {}
+    concepts: list[dict] = []
     for row in result:
         name = row[0]
         summary = row[1]
         definition = row[2]
+        aliases = row[3] or []
         # 优先用 summary，其次截断 definition
         text = (summary or definition or "")[:summary_max_length]
         if text:
-            concepts[name] = text
+            concepts.append({
+                "name": name,
+                "summary": text,
+                "aliases": aliases,
+            })
 
     return concepts
 
@@ -399,6 +520,18 @@ async def list_concepts(
             )
         ).scalar_one()
 
+        # 来源文档（通过 chunk → document 关联）
+        doc_names_q = (
+            select(KbDocument.doc_name)
+            .join(KbChunk, KbChunk.document_id == KbDocument.id)
+            .join(KbChunkConcept, KbChunkConcept.chunk_id == KbChunk.id)
+            .where(KbChunkConcept.concept_id == c.id)
+            .distinct()
+            .limit(5)
+        )
+        doc_names_result = (await db.execute(doc_names_q)).scalars().all()
+        doc_names = list(doc_names_result)
+
         # 相关概念：co-occur 最高的其他概念（简化版：top 5 by 共同 chunk 数）
         related_q = (
             select(KbConcept.name, func.count(KbChunkConcept.id).label("cnt"))
@@ -429,6 +562,7 @@ async def list_concepts(
             "confidence": c.confidence,
             "source_chunk_ids": c.source_chunk_ids,
             "chunk_count": chunk_count,
+            "doc_names": doc_names,
             "related_concepts": related_names,
             "created_at": c.created_at,
             "updated_at": c.updated_at,

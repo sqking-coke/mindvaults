@@ -61,8 +61,12 @@ async def _build_history(db: AsyncSession, session_id: int) -> str:
     return "\n".join(parts)
 
 
-async def _build_context(db: AsyncSession, chunks: list[RefChunk], sys_cfg=None) -> str:
-    """将检索到的切片组装成 LLM 上下文，注入关联概念摘要。"""
+async def _build_context(db: AsyncSession, chunks: list[RefChunk], sys_cfg=None) -> tuple[str, list[dict]]:
+    """将检索到的切片组装成 LLM 上下文，注入关联概念摘要。
+
+    returns: (context_string, concepts_list) — concepts_list 用于前端 hover 卡片
+        concepts_list: [{"name": str, "summary": str, "aliases": list[str]}]
+    """
     parts = []
 
     # 查询关联概念摘要
@@ -76,19 +80,19 @@ async def _build_context(db: AsyncSession, chunks: list[RefChunk], sys_cfg=None)
             summary_max_length=cfg.get("summary_max_length", 200),
         )
     except Exception:
-        concepts = {}
+        concepts = []
 
     # 先放术语说明
     if concepts:
         parts.append("[术语说明]")
-        for name, summary in concepts.items():
-            parts.append(f"- {name}: {summary}")
+        for c in concepts:
+            parts.append(f"- {c['name']}: {c['summary']}")
         parts.append("")
 
     # 再放文档内容
     for i, c in enumerate(chunks, 1):
         parts.append(f"[{i}] 来源: {c.doc_name}\n{c.content}")
-    return "\n".join(parts)
+    return "\n".join(parts), concepts
 
 
 class _SafeJsonEncoder(json.JSONEncoder):
@@ -350,7 +354,7 @@ async def chat_stream(
     await _push_thinking(req.session_id, round_key, step)
     yield ("progress", json.dumps(step))
 
-    context = await _build_context(db, chunks, sys_cfg)
+    context, concepts = await _build_context(db, chunks, sys_cfg)
     history = await _build_history(db, session.id)
     user_prompt = f"参考文档：\n\n{context}\n{history}\n用户问题：{req.question}\n\n请回答："
 
@@ -396,7 +400,7 @@ async def chat_stream(
     elapsed_ms = int((time.time() - t_start) * 1000)
     logger.info(
         f"rag_chat_done session_id={req.session_id} answer_len={len(full_answer)} "
-        f"chunks={len(chunks)} elapsed_ms={elapsed_ms}"
+        f"chunks={len(chunks)} concepts={len(concepts)} elapsed_ms={elapsed_ms}"
     )
 
     yield (
@@ -412,6 +416,10 @@ async def chat_stream(
                         "page": c.page,
                     }
                     for c in chunks
+                ],
+                "concepts": [
+                    {"name": c["name"], "summary": c["summary"], "aliases": c.get("aliases", [])}
+                    for c in concepts
                 ],
                 "round_key": round_key,
                 "qa_record_id": record.id,

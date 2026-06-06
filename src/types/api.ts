@@ -91,6 +91,14 @@ export interface Message {
   citations?: Citation[];
   thinkingSteps?: ThinkingStep[];
   roundKey?: string;
+  concepts?: ConceptInfo[];  // 关联的概念术语，用于 hover 卡片
+}
+
+/** 概念术语摘要（从 done 事件下发，用于 hover 卡片） */
+export interface ConceptInfo {
+  name: string;
+  summary: string;
+  aliases?: string[];
 }
 
 /** 前端 Conversation（与 Session 对齐） */
@@ -196,6 +204,7 @@ export interface SSETokenEvent {
 /** SSE event: done */
 export interface SSEDoneEvent {
   ref_chunks: RefChunk[];
+  concepts?: { name: string; summary: string; aliases?: string[] }[];
   round_key: string;
   qa_record_id: number;
 }
@@ -416,6 +425,7 @@ export interface Concept {
   confidence: number;
   source_chunk_ids: number[] | null;
   chunk_count: number;
+  doc_names: string[];
   related_concepts: string[];
   created_at: string;
   updated_at: string;

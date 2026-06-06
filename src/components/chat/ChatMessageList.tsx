@@ -16,6 +16,7 @@ import {
 import { saveInsight } from "@/services/ragService";
 import KnowledgeCard from "./KnowledgeCard";
 import WechatExport from "./WechatExport";
+import { renderWithConcepts } from "./ConceptHoverCard";
 
 interface ChatMessageListProps {
   onSelectTemplate: (text: string) => void;
@@ -68,10 +69,19 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
     { label: "研发接口标准", text: "研发团队对于 RESTful API 接口的命名路径、异常响应体以及幂等性设计有什么具体规范要求？", icon: "💻" },
   ];
 
-  // Helper: Parse message text to find citation numbers like [1] or [2] and render them as interactive tags
-  const renderMessageContent = (content: string, citations?: Citation[]) => {
+  // Helper: Parse message text to find citation numbers like [1] or [2] and render them as interactive tags.
+  // Also inject concept hover cards for matched terms.
+  const renderMessageContent = (
+    content: string,
+    citations?: Citation[],
+    concepts?: { name: string; summary: string; aliases?: string[] }[],
+  ) => {
     if (!citations || citations.length === 0) {
-      return <div className="whitespace-pre-wrap leading-relaxed">{content}</div>;
+      return (
+        <div className="whitespace-pre-wrap leading-relaxed">
+          {renderWithConcepts(content, concepts || [])}
+        </div>
+      );
     }
 
     // Match [1], [2], [3]...
@@ -83,7 +93,7 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
           if (match) {
             const citIndex = parseInt(match[1], 10);
             const citation = citations.find(c => c.index === citIndex);
-            
+
             if (citation) {
               return (
                 <button
@@ -98,7 +108,8 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
               );
             }
           }
-          return <span key={index}>{part}</span>;
+          // 文本片段：应用概念 hover 卡片
+          return <span key={index}>{renderWithConcepts(part, concepts || [])}</span>;
         })}
       </div>
     );
@@ -278,7 +289,21 @@ export default function ChatMessageList({ onSelectTemplate }: ChatMessageListPro
                       ) : (
                         <>
                           {msg.content.length > 0 ? (
-                            renderMessageContent(msg.content, msg.citations)
+                            <>
+                              {renderMessageContent(msg.content, msg.citations, msg.concepts)}
+                              {msg.concepts && msg.concepts.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
+                                    🏷️ 术语 ({msg.concepts.length})
+                                  </span>
+                                  {msg.concepts.map(c => (
+                                    <span key={c.name} className="inline-flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                                      {c.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           ) : isGenerating && msg.id === lastAssistantMsg?.id ? (
                             <span className="text-slate-400 text-xs">等待模型响应...</span>
                           ) : null}

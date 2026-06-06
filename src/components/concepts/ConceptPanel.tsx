@@ -385,7 +385,20 @@ export default function ConceptPanel() {
                       <StatusBadge status={c.status} />
                     </td>
                     <td className="px-5 py-3 hidden lg:table-cell">
-                      <span className="text-xs text-slate-500">{c.chunk_count} 个文档</span>
+                      {c.doc_names && c.doc_names.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-w-[220px]">
+                          {c.doc_names.slice(0, 2).map((doc, i) => (
+                            <span key={i} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded truncate max-w-[180px]" title={doc}>
+                              {doc.length > 18 ? doc.slice(0, 18) + "..." : doc}
+                            </span>
+                          ))}
+                          {c.doc_names.length > 2 && (
+                            <span className="text-[10px] text-slate-400">+{c.doc_names.length - 2}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">{c.chunk_count} 个 chunk</span>
+                      )}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>

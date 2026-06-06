@@ -441,6 +441,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const citations: Citation[] = (event.data.ref_chunks || []).map((rc, i) =>
                 refChunkToCitation(rc, i),
               );
+              const concepts = (event.data.concepts || []) as { name: string; summary: string; aliases?: string[] }[];
               const roundKey = (event.data as any).round_key as string | undefined;
               const qaRecordId = event.data.qa_record_id;
               // 替换临时 ID（Date.now() 时间戳）为真实 DB ID，后续「保存到知识库」依赖此 ID
@@ -452,7 +453,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                         ...c,
                         messages: c.messages.map((m) =>
                           m.id === assistantId
-                            ? { ...m, id: realAssistantId, citations, roundKey }
+                            ? { ...m, id: realAssistantId, citations, roundKey, concepts }
                             : m,
                         ),
                       }

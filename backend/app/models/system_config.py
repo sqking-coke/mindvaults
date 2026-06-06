@@ -45,6 +45,7 @@ class SystemConfig(Base):
     concept_min_chunk_length: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
     concept_max_per_round: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     concept_summary_max_length: Mapped[int] = mapped_column(Integer, default=200, nullable=False)
+    concept_similarity_threshold: Mapped[float] = mapped_column(Float, default=0.85, nullable=False)
 
     # 外部 Skill 插件推送认证 Key
     external_api_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
