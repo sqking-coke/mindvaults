@@ -58,12 +58,19 @@ async def ingest_document(
             pages,
             chunk_size=config.chunk_size,
             chunk_overlap=config.chunk_overlap,
-            mode="semantic",
+            mode="structured",
         )
+        # 3.1 源头质量过滤：剔除过短/ASCII艺术/纯标题/纯符号碎片
+        chunks_with_pages, rejected = _filter_chunks_ingestion(chunks_with_pages, doc_id)
+
         if not chunks_with_pages:
             log_event("doc_chunking_empty", doc_id=doc_id)
             doc.status = DOC_STATUS_FAILED
-            doc.status_detail = {"phase": "failed", "error": "chunking produced no chunks", "at": datetime.now(timezone.utc).isoformat()}
+            doc.status_detail = {
+                "phase": "failed",
+                "error": f"chunking produced no chunks (all {len(rejected)} rejected by quality filter)",
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
             await db.commit()
             return
 
@@ -95,6 +102,7 @@ async def ingest_document(
             await db.commit()
             return
 
+        new_chunk_ids: list[int] = []
         for idx, (chunk_content, page_num) in enumerate(chunks_with_pages):
             chunk_record = KbChunk(
                 document_id=doc_id,
@@ -106,6 +114,14 @@ async def ingest_document(
             db.add(chunk_record)
 
         await db.flush()
+
+        # 收集新创建的 chunk ID
+        chunk_id_rows = (
+            await db.execute(
+                select(KbChunk.id).where(KbChunk.document_id == doc_id)
+            )
+        ).scalars().all()
+        new_chunk_ids = list(chunk_id_rows)
 
         # 5. 从数据库统计实际切片数，更新文档状态为完成
         actual_count = (await db.execute(
@@ -160,6 +176,33 @@ async def ingest_document(
             logger.warning(
                 f"concept_extraction_after_ingestion_failed doc_id={doc_id} kb_id={doc.kb_id}"
             )
+
+        # 摄入时即时重复检测（非阻塞）
+        if new_chunk_ids:
+            try:
+                from app.services.health_service import check_new_content_duplicates
+                dup_result = await check_new_content_duplicates(
+                    db, doc.kb_id, new_chunk_ids, auto_merge=True,
+                )
+                if dup_result["duplicates_found"] > 0:
+                    # 将检测结果附加到文档状态详情
+                    doc.status_detail = {
+                        **(doc.status_detail or {}),
+                        "duplicate_check": {
+                            "duplicates_found": dup_result["duplicates_found"],
+                            "auto_superseded": dup_result["auto_superseded"],
+                        },
+                    }
+                    await db.flush()
+                    logger.info(
+                        f"ingestion_duplicate_check doc_id={doc_id} "
+                        f"found={dup_result['duplicates_found']} "
+                        f"auto_superseded={dup_result['auto_superseded']}"
+                    )
+            except Exception:
+                logger.warning(
+                    f"ingestion_duplicate_check_failed doc_id={doc_id} kb_id={doc.kb_id}"
+                )
 
     except Exception as exc:
         logger.error(f"doc_ingestion_failed doc_id={doc_id} error=\"{exc}\"")
@@ -258,6 +301,28 @@ async def recover_stuck_documents(db_factory) -> int:
     if stuck:
         logger.info(f"recovered_stuck_documents count={len(stuck)}")
     return len(stuck)
+
+
+def _filter_chunks_ingestion(
+    chunks_with_pages: list[tuple[str, int | None]],
+    doc_id: int,
+) -> tuple[list[tuple[str, int | None]], list[dict]]:
+    """摄入时调用源头质量过滤。"""
+    from app.services.chunk_quality import filter_chunks
+
+    kept, rejected = filter_chunks(chunks_with_pages)
+    if rejected:
+        log_event(
+            "ingestion_quality_filter",
+            doc_id=doc_id,
+            total=len(chunks_with_pages),
+            kept=len(kept),
+            rejected=len(rejected),
+            reasons=", ".join(
+                f"{r['reason']}(len={r['length']})" for r in rejected[:5]
+            ),
+        )
+    return kept, rejected
 
 
 async def _get_or_create_config(db: AsyncSession, kb_id: int) -> KbConfig:

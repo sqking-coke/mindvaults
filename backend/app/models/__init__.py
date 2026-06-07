@@ -18,6 +18,8 @@ from app.models.system_config import SystemConfig  # noqa: E402, F401
 from app.models.insight import KbInsight  # noqa: E402, F401
 from app.models.external_entry import KbExternalEntry  # noqa: E402, F401
 from app.models.concept import KbConcept, KbChunkConcept  # noqa: E402, F401
+from app.models.health_report import KbHealthReport  # noqa: E402, F401
+from app.models.chunk_link import KbChunkLink  # noqa: E402, F401
 
 __all__ = [
     "Base",
@@ -35,4 +37,6 @@ __all__ = [
     "KbExternalEntry",
     "KbConcept",
     "KbChunkConcept",
+    "KbHealthReport",
+    "KbChunkLink",
 ]

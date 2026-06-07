@@ -59,9 +59,10 @@ async def _pgvector_search(
     similarity_expr_chunk = 1.0 - func.cosine_distance(KbChunk.embedding, vec)
     similarity_expr_insight = 1.0 - func.cosine_distance(KbInsight.embedding, vec)
 
-    # chunk 查询
+    # chunk 查询 — 排除 superseded / orphan 状态
     chunk_filters = [
         KbDocument.status == DOC_STATUS_COMPLETED,
+        KbChunk.status == "active",
         func.cosine_distance(KbChunk.embedding, vec) <= 1.0 - thresh,
     ]
     if kb_id > 0:
@@ -205,6 +206,7 @@ async def compute_centroid(db: AsyncSession, kb_id: int) -> list[float] | None:
                 KbDocument.kb_id == kb_id,
                 KbDocument.deleted_at.is_(None),
                 KbDocument.status == DOC_STATUS_COMPLETED,
+                KbChunk.status == "active",
             )
         )).all()
     else:
@@ -216,6 +218,7 @@ async def compute_centroid(db: AsyncSession, kb_id: int) -> list[float] | None:
                 KbDocument.kb_id == kb_id,
                 KbDocument.deleted_at.is_(None),
                 KbDocument.status == DOC_STATUS_COMPLETED,
+                KbChunk.status == "active",
             )
             .order_by(func.random())
             .limit(_MAX_CENTROID_SAMPLE)

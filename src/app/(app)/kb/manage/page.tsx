@@ -5,6 +5,7 @@ import { Sparkles, Tag, Heart, Activity, Clock } from "lucide-react";
 import InsightReview from "@/components/insights/InsightReview";
 import SchedulerPanel from "@/components/insights/SchedulerPanel";
 import ConceptPanel from "@/components/concepts/ConceptPanel";
+import HealthCenter from "@/components/health/HealthCenter";
 
 type GovTab = "insights" | "concepts" | "health" | "monitor" | "scheduler";
 
@@ -93,13 +94,7 @@ export default function ManagePage() {
           {/* Tab Content */}
           {activeTab === "insights" && <InsightReview />}
           {activeTab === "concepts" && <ConceptPanel />}
-          {activeTab === "health" && (
-            <PlaceholderPanel
-              title="健康中心"
-              icon={<Heart className="h-8 w-8" />}
-              description="定期扫描知识库内容质量：重复检测、过时标记、短碎片清理、整体健康度量化评分。"
-            />
-          )}
+          {activeTab === "health" && <HealthCenter />}
           {activeTab === "monitor" && (
             <PlaceholderPanel
               title="监控看板"

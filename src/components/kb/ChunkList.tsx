@@ -6,6 +6,21 @@ import { formatDateShort } from "@/utils/date";
 import { Edit3, Trash2, ChevronLeft, ChevronRight, Hash, Eye, AlertTriangle } from "lucide-react";
 import ChunkEditor from "./ChunkEditor";
 
+function ChunkStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    active:   { label: "活跃",   cls: "bg-emerald-100 text-emerald-700" },
+    superseded: { label: "已替换", cls: "bg-amber-100 text-amber-700" },
+    archived:   { label: "已归档", cls: "bg-slate-200 text-slate-500" },
+    orphan:     { label: "孤岛",   cls: "bg-red-100 text-red-500" },
+  };
+  const info = map[status] || { label: status, cls: "bg-slate-100 text-slate-500" };
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${info.cls}`}>
+      {info.label}
+    </span>
+  );
+}
+
 interface ChunkListProps {
   docId: string;
   docName: string;
@@ -114,6 +129,7 @@ export default function ChunkList({ docId, docName, onCountChanged }: ChunkListP
                   <th className="px-4 py-2.5 w-12 text-center">索引</th>
                   <th className="px-4 py-2.5">切片内容预览 (前 150 字符)</th>
                   <th className="px-4 py-2.5 w-16 text-center">页码</th>
+                  <th className="px-4 py-2.5 w-16 text-center">状态</th>
                   <th className="px-4 py-2.5 w-24 text-center">创建时间</th>
                   <th className="px-4 py-2.5 w-24 text-right">操作</th>
                 </tr>
@@ -131,6 +147,9 @@ export default function ChunkList({ docId, docName, onCountChanged }: ChunkListP
                       </td>
                       <td className="px-4 py-2.5 text-center font-semibold font-mono text-indigo-600 bg-indigo-50/20">
                         {chunk.page !== null ? `${chunk.page} 页` : "—"}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <ChunkStatusBadge status={chunk.status} />
                       </td>
                       <td className="px-4 py-2.5 text-center font-mono text-slate-400">
                         {formatDateShort(chunk.created_at)}

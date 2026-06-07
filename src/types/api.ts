@@ -545,3 +545,83 @@ export interface ExternalEntryItem {
 }
 
 export interface ExternalEntryListResponse extends PaginatedData<ExternalEntryItem> {}
+
+// ==================== 知识库健康诊断 API (#19) ====================
+
+export interface DuplicateChunkItem {
+  id: number;
+  content_preview: string;
+  doc_name: string;
+  source_type: string;
+  quality_score: number | null;
+  status: string;
+}
+
+export interface DuplicateGroup {
+  similarity: number;
+  chunks: DuplicateChunkItem[];
+  recommended_keep_id: number | null;
+  auto_resolve: boolean;
+  resolved?: boolean;
+  resolved_keep_id?: number;
+}
+
+export interface LowQualityItem {
+  id: number;
+  content_preview: string;
+  length: number;
+  reason: string;
+  doc_name: string;
+  status: string;
+}
+
+export interface OutdatedItem {
+  id: number;
+  content_preview: string;
+  reason: string;
+  doc_name: string;
+  created_at: string | null;
+  last_hit_at: string | null;
+}
+
+export interface OrphanItem {
+  id: number;
+  content_preview: string;
+  orphan_type: string;
+  doc_name: string;
+}
+
+export interface FragmentCluster {
+  cluster_label: string;
+  avg_similarity: number;
+  chunks: DuplicateChunkItem[];
+}
+
+export interface HealthReportDetail {
+  duplicates: DuplicateGroup[];
+  low_quality: LowQualityItem[];
+  outdated: OutdatedItem[];
+  orphans: OrphanItem[];
+  fragment_clusters: FragmentCluster[];
+  health_breakdown: Record<string, number>;
+}
+
+export interface HealthReportItem {
+  id: number;
+  kb_id: number;
+  scan_type: string;
+  scanned_at: string;
+  total_chunks: number;
+  duplicate_groups: number;
+  low_quality: number;
+  outdated: number;
+  orphans: number;
+  fragment_clusters: number;
+  health_score: number;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface HealthReportResponse extends HealthReportItem {
+  details: HealthReportDetail;
+}

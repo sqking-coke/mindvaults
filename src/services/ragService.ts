@@ -197,6 +197,7 @@ export interface ChunkItem {
   chunk_index: number;
   content: string;
   page: number | null;
+  status: string;
   created_at: string;
 }
 

@@ -15,6 +15,7 @@ class ChunkItem(BaseModel):
     chunk_index: int
     content: str
     page: Optional[int] = None
+    status: str = "active"
     created_at: datetime
 
     model_config = {"from_attributes": True}

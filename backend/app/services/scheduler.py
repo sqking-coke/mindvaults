@@ -16,6 +16,7 @@ scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 
 JOB_INSIGHT_EXTRACTION = "insight_extraction"
 JOB_STALE_ENTRY_CLEANUP = "stale_entry_cleanup"
+JOB_HEALTH_SCAN = "health_scan"
 
 
 # ── 定时提炼任务 ────────────────────────────────────────────
@@ -68,6 +69,33 @@ async def _run_stale_entry_cleanup() -> None:
         logger.error(f"stale_entry_cleanup_failed error=\"{exc}\"")
 
 
+# ── 每周健康扫描 ──────────────────────────────────────────
+
+async def _run_health_scan() -> None:
+    """每周全库健康扫描：遍历所有 KB，生成诊断报告。"""
+    from app.core.database import AsyncSessionLocal
+    from app.models.knowledge_base import KnowledgeBase
+    from sqlalchemy import select
+
+    logger.info("health_scan_batch_started trigger=scheduler")
+
+    try:
+        async with AsyncSessionLocal() as db:
+            kbs = (await db.execute(select(KnowledgeBase))).scalars().all()
+            total_reports = 0
+            for kb in kbs:
+                try:
+                    from app.services.health_service import scan_health
+                    report = await scan_health(db, kb.id, scan_type="scheduled")
+                    total_reports += 1
+                except Exception as exc:
+                    logger.error(f"health_scan_kb_failed kb_id={kb.id} error=\"{exc}\"")
+            await db.commit()
+            logger.info(f"health_scan_batch_completed kbs_scanned={len(kbs)} reports={total_reports}")
+    except Exception as exc:
+        logger.error(f"health_scan_batch_failed error=\"{exc}\"")
+
+
 def init_scheduler() -> None:
     """在应用启动时注册所有定时任务。调度时间从 system_config 读取。"""
     from app.core.database import AsyncSessionLocal
@@ -111,6 +139,16 @@ def init_scheduler() -> None:
         replace_existing=True,
     )
     logger.info(f"scheduler_job_registered job={JOB_STALE_ENTRY_CLEANUP} schedule={schedule_time}")
+
+    # 每周日 03:00 全库健康扫描
+    scheduler.add_job(
+        _run_health_scan,
+        trigger=CronTrigger(day_of_week="sun", hour=3, minute=7),
+        id=JOB_HEALTH_SCAN,
+        name="每周全库健康扫描",
+        replace_existing=True,
+    )
+    logger.info(f"scheduler_job_registered job={JOB_HEALTH_SCAN} schedule=sunday_03:07")
 
 
 def shutdown_scheduler() -> None:

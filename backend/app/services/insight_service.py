@@ -484,6 +484,23 @@ async def _insight_to_chunk(db: AsyncSession, insight: KbInsight) -> None:
         f"chunk_index={chunk.chunk_index} title=\"{insight.title[:50]}\""
     )
 
+    # 摄入时即时重复检测（非阻塞：失败不影响 insight 审核）
+    try:
+        from app.services.health_service import check_new_content_duplicates
+        dup_result = await check_new_content_duplicates(
+            db, target_kb, [chunk.id], auto_merge=True,
+        )
+        if dup_result["duplicates_found"] > 0:
+            logger.info(
+                f"insight_duplicate_check insight_id={insight.id} chunk_id={chunk.id} "
+                f"found={dup_result['duplicates_found']} "
+                f"auto_superseded={dup_result['auto_superseded']}"
+            )
+    except Exception:
+        logger.warning(
+            f"insight_duplicate_check_failed insight_id={insight.id} chunk_id={chunk.id}"
+        )
+
 
 async def review_insight(
     db: AsyncSession,
