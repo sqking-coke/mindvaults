@@ -92,7 +92,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="mindvaults API",
         description="本地私有知识库问答系统",
-        version="0.1.0",
+        version="0.7.0",
         lifespan=lifespan,
     )
 

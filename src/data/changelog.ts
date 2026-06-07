@@ -8,6 +8,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v0.7.0",
+    date: "2026-06-07",
+    title: "概念术语关联底座",
+    description:
+      "概念术语关联完整闭环：文档摄入时 LLM 自动抽取概念术语（Concept），构建知识库级术语表。RAG 检索时自动注入相关概念定义到 System Prompt 上下文，提升 LLM 对领域术语的理解准确度。前端概念管理页支持术语的查看、搜索、编辑、删除，概念 hover 卡片在对话中展示术语释义。抽取结果增量提交（每批 commit），避免大批量导入时单次失败全部回滚。概念注入支持 doc_names 字段（术语关联的源文档名列表）和词边界正则匹配（\\b 包裹），避免短词误匹配。",
+    tags: ["feature"],
+  },
+  {
+    version: "v0.6.0",
+    date: "2026-06-05",
+    title: "数据治理增强 & 稳定性修复",
+    description:
+      "修复 numpy.float32 JSON 序列化崩溃：done 事件显式 float() 转换 + _SafeJsonEncoder 兜底。修复 ingestion embed_batch 缺失 model 参数导致 DB 配置的 Embedding 模型被忽略。修复文档删除时 NOT NULL 约束崩溃（手动级联删除避免 ORM 设 NULL）。修复 KB 删除时的外键约束问题。数据治理页面代码优化与交互改进（ConfirmDialog 弹窗防误操作、showToast 恢复 warning 类型）。系统信息恢复硬编码展示（Apple M4 Ultra 等）。修复前端删除对话不走后端 API 的问题。",
+    tags: ["fix", "refactor"],
+  },
+  {
     version: "v0.5.0",
     date: "2026-06-03",
     title: "对话知识沉淀 #16 实现 & 基座加固",
