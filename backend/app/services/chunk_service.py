@@ -14,9 +14,14 @@ from app.services.embedding_service import embed_text
 
 
 async def list_chunks(
-    db: AsyncSession, doc_id: int, page: int = 1, page_size: int = 20
+    db: AsyncSession, doc_id: int, page: int = 1, page_size: int = 20,
+    include_inactive: bool = False,
 ) -> ChunkListResponse:
-    """分页获取文档的所有切片（排除已删除文档）。"""
+    """分页获取文档的切片（默认只返回 active 状态）。
+
+    Args:
+        include_inactive: 为 True 时返回所有状态的切片（含 superseded/orphan/archived）。
+    """
     doc = (
         await db.execute(
             select(KbDocument).where(
@@ -27,16 +32,18 @@ async def list_chunks(
     if doc is None:
         raise DocNotFoundError(f"文档不存在: id={doc_id}")
 
-    count_query = select(func.count()).select_from(KbChunk).where(
-        KbChunk.document_id == doc_id
-    )
+    base_where = [KbChunk.document_id == doc_id]
+    if not include_inactive:
+        base_where.append(KbChunk.status == "active")
+
+    count_query = select(func.count()).select_from(KbChunk).where(*base_where)
     total = (await db.execute(count_query)).scalar_one()
 
     offset = (page - 1) * page_size
     rows = (
         await db.execute(
             select(KbChunk)
-            .where(KbChunk.document_id == doc_id)
+            .where(*base_where)
             .order_by(KbChunk.chunk_index)
             .offset(offset)
             .limit(page_size)

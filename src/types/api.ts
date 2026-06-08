@@ -449,8 +449,15 @@ export interface ConceptUpdateRequest {
   status?: string;
 }
 
+export interface SuggestedChunk {
+  chunk_id: number;
+  content_preview: string;
+  doc_name: string;
+  similarity: number;
+}
+
 export interface ConceptManualCreateRequest {
-  kb_id: number;
+  kb_id?: number;
   name: string;
   definition: string;
   summary?: string;

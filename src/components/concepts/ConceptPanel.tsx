@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { usemindvaults } from "@/context/mindvaultsContext";
 import { get, post, put, del } from "@/services/apiClient";
-import type { Concept, ConceptDetail, ConceptUpdateRequest, ConceptManualCreateRequest } from "@/types/api";
+import type { Concept, ConceptDetail, ConceptUpdateRequest, ConceptManualCreateRequest, SuggestedChunk } from "@/types/api";
 import {
   Tag, Search, X, Edit3, Trash2, Plus, BookOpen, Loader2,
   ChevronLeft, ExternalLink, Hash, Clock, BadgeCheck, Sparkles,
@@ -50,6 +50,12 @@ export default function ConceptPanel() {
   // Create modal
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({ name: "", definition: "", summary: "", aliases: "" });
+  const [createKbId, setCreateKbId] = useState<string>("");
+  const [suggestedChunks, setSuggestedChunks] = useState<SuggestedChunk[]>([]);
+  const [selectedChunkIds, setSelectedChunkIds] = useState<Set<number>>(new Set());
+  const [suggesting, setSuggesting] = useState(false);
+
+  const [cleaning, setCleaning] = useState(false);
 
   const PAGE_SIZE = 20;
 
@@ -59,7 +65,6 @@ export default function ConceptPanel() {
       const params = new URLSearchParams();
       params.set("page", String(page));
       params.set("page_size", String(PAGE_SIZE));
-      if (activeKbId) params.set("kb_id", activeKbId);
       if (search.trim()) params.set("search", search.trim());
       if (statusFilter) params.set("status", statusFilter);
 
@@ -140,26 +145,85 @@ export default function ConceptPanel() {
     }
   };
 
+  // ── 清理孤岛 ──────────────────────────────────────────
+
+  const cleanupOrphans = async () => {
+    if (!window.confirm("确认删除所有无切片引用的孤立概念？此操作不可撤销。")) return;
+    setCleaning(true);
+    try {
+      const params = activeKbId ? `?kb_id=${activeKbId}` : "";
+      const data = await post<{ deleted: number }>(`/api/v1/kb/concepts/cleanup-orphans${params}`, {});
+      showToast?.(`已清理 ${data?.deleted || 0} 个孤立概念`, "success");
+      fetchConcepts();
+    } catch {
+      showToast?.("清理失败", "error");
+    } finally {
+      setCleaning(false);
+    }
+  };
+
   // ── 手动创建 ──────────────────────────────────────────
+
+  const suggestChunks = async () => {
+    if (!createForm.definition.trim() || !createKbId) return;
+    setSuggesting(true);
+    try {
+      const data = await post<{ chunks: SuggestedChunk[] }>("/api/v1/kb/concepts/suggest-chunks", {
+        definition: createForm.definition.trim(),
+        kb_id: Number(createKbId),
+      });
+      const chunks = data?.chunks || [];
+      setSuggestedChunks(chunks);
+      setSelectedChunkIds(new Set(chunks.map(c => c.chunk_id)));
+      if (chunks.length === 0) {
+        showToast?.("未找到关联切片", "success");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "查找失败，请稍后重试";
+      showToast?.(msg, "error");
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const toggleChunkSelection = (chunkId: number) => {
+    setSelectedChunkIds(prev => {
+      const next = new Set(prev);
+      if (next.has(chunkId)) next.delete(chunkId); else next.add(chunkId);
+      return next;
+    });
+  };
 
   const createConcept = async () => {
     if (!createForm.name.trim() || !createForm.definition.trim()) return;
-    if (!activeKbId) { showToast?.("请先选择知识库", "error"); return; }
 
     const payload: ConceptManualCreateRequest = {
-      kb_id: Number(activeKbId),
       name: createForm.name.trim(),
       definition: createForm.definition.trim(),
       summary: createForm.summary.trim() || undefined,
       aliases: createForm.aliases.split(",").map(s => s.trim()).filter(Boolean),
       status: "manual",
     };
+    if (createKbId) payload.kb_id = Number(createKbId);
 
     try {
-      await post("/api/v1/kb/concepts", payload);
-      showToast?.("概念已创建", "success");
+      const data = await post<{ id: number }>("/api/v1/kb/concepts", payload);
+      if (!data?.id) { showToast?.("创建失败", "error"); return; }
+
+      // 关联用户选中的切片
+      const chunkIds = Array.from(selectedChunkIds);
+      if (chunkIds.length > 0) {
+        await post(`/api/v1/kb/concepts/${data.id}/link`, { chunk_ids: chunkIds });
+      }
+      showToast?.(
+        chunkIds.length > 0 ? `概念已创建，关联 ${chunkIds.length} 个切片` : "概念已创建",
+        "success"
+      );
       setCreating(false);
       setCreateForm({ name: "", definition: "", summary: "", aliases: "" });
+      setCreateKbId("");
+      setSuggestedChunks([]);
+      setSelectedChunkIds(new Set());
       fetchConcepts();
     } catch {
       showToast?.("创建失败", "error");
@@ -311,7 +375,7 @@ export default function ConceptPanel() {
         <select
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border border-slate-200 rounded-xl bg-white hover:bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors cursor-pointer appearance-none"
         >
           <option value="">全部状态</option>
           <option value="auto">自动抽取</option>
@@ -326,6 +390,19 @@ export default function ConceptPanel() {
         >
           <Plus className="h-3.5 w-3.5" />
           手动创建
+        </button>
+
+        <button
+          onClick={cleanupOrphans}
+          disabled={cleaning}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border border-red-200 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 focus:outline-none transition-colors disabled:opacity-50"
+        >
+          {cleaning ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+          清理无用概念
         </button>
       </div>
 
@@ -456,7 +533,15 @@ export default function ConceptPanel() {
           form={createForm}
           onChange={setCreateForm}
           onSave={createConcept}
-          onClose={() => setCreating(false)}
+          onClose={() => { setCreating(false); setSuggestedChunks([]); setSelectedChunkIds(new Set()); }}
+          knowledgeBases={knowledgeBases}
+          kbId={createKbId}
+          onKbChange={setCreateKbId}
+          suggestedChunks={suggestedChunks}
+          selectedChunkIds={selectedChunkIds}
+          onToggleChunk={toggleChunkSelection}
+          onSuggest={suggestChunks}
+          suggesting={suggesting}
         />
       )}
 
@@ -550,15 +635,25 @@ function EditModal({
 
 function CreateModal({
   form, onChange, onSave, onClose,
+  knowledgeBases, kbId, onKbChange,
+  suggestedChunks, selectedChunkIds, onToggleChunk, onSuggest, suggesting,
 }: {
   form: { name: string; definition: string; summary: string; aliases: string };
   onChange: (f: typeof form) => void;
   onSave: () => void;
   onClose: () => void;
+  knowledgeBases: { id: number; name: string }[];
+  kbId: string;
+  onKbChange: (id: string) => void;
+  suggestedChunks: SuggestedChunk[];
+  selectedChunkIds: Set<number>;
+  onToggleChunk: (id: number) => void;
+  onSuggest: () => void;
+  suggesting: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-xl p-6 max-w-xl w-full mx-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="font-bold text-slate-800 mb-4">手动创建概念</h3>
 
         <div className="space-y-4">
@@ -599,6 +694,64 @@ function CreateModal({
               placeholder="如：centroid matching, KB 质心"
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
+          </div>
+
+          {/* KB 选择 + 关联切片 */}
+          <div className="border-t border-slate-100 pt-4">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                  关联知识库（可选，用于查找相关切片）
+                </label>
+                <select
+                  value={kbId}
+                  onChange={e => onKbChange(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                >
+                  <option value="">不关联切片</option>
+                  {knowledgeBases.map(kb => (
+                    <option key={kb.id} value={String(kb.id)}>{kb.name}</option>
+                  ))}
+                </select>
+              </div>
+              {kbId && (
+                <button
+                  onClick={onSuggest}
+                  disabled={suggesting || !form.definition.trim()}
+                  className="mt-5 px-3 py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-xl hover:bg-indigo-50 disabled:opacity-40 transition-colors whitespace-nowrap"
+                >
+                  {suggesting ? "查找中..." : "查找关联切片"}
+                </button>
+              )}
+            </div>
+
+            {/* 候选切片列表 */}
+            {suggestedChunks.length > 0 && (
+              <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                <p className="text-xs text-slate-500">
+                  勾选要关联的切片（默认全选）：
+                </p>
+                {suggestedChunks.map(c => (
+                  <label
+                    key={c.chunk_id}
+                    className="flex items-start gap-2 p-2 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedChunkIds.has(c.chunk_id)}
+                      onChange={() => onToggleChunk(c.chunk_id)}
+                      className="mt-1 h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="min-w-0 text-xs">
+                      <div className="text-slate-700 line-clamp-2">{c.content_preview}</div>
+                      <div className="text-slate-400 mt-0.5">
+                        {c.doc_name} · 相似度 {(c.similarity * 100).toFixed(0)}%
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

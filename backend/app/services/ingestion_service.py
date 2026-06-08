@@ -12,6 +12,7 @@ from app.models.config import KbConfig
 from app.utils.logger import log_event
 from app.services.parser_service import parse_document
 from app.services.chunking_service import chunk_pages
+from app.services.preprocessor import get_preprocessor
 from app.config import settings
 from app.services.embedding_service import embed_batch
 
@@ -20,7 +21,7 @@ async def ingest_document(
     db: AsyncSession, doc_id: int, doc_type: str, file_path: str,
     llm_api_key: str | None = None, embedding_api_key: str | None = None,
 ) -> None:
-    """文档摄入管道：解析 → 切片 → 向量化 → 入库。
+    """文档摄入管道：解析 → 预处理 → 切片 → 向量化 → 入库。
 
     可选传入 llm_api_key / embedding_api_key，优先级高于配置。
     """
@@ -51,14 +52,21 @@ async def ingest_document(
             await db.commit()
             return
 
+        # 1.5 预处理：按文件类型清洗 + 归拢（MD→Section 树、PDF→去页眉页脚、TXT→噪声过滤）
+        preprocessor = get_preprocessor()
+        pages = await preprocessor.preprocess(doc_type, pages)
+        doc.status_detail = {"phase": "preprocessed", "units": len(pages),
+                             "started_at": datetime.now(timezone.utc).isoformat()}
+        await db.flush()
+
         # 2. 读取配置（从文档所属 KB）
         config = await _get_or_create_config(db, doc.kb_id)
-        # 3. 逐页切片，保留页码信息
+        # 3. 逐页切片，保留页码信息（预处理已完成清洗，直接用 semantic 模式）
         chunks_with_pages = await chunk_pages(
             pages,
             chunk_size=config.chunk_size,
             chunk_overlap=config.chunk_overlap,
-            mode="structured",
+            mode="semantic",
         )
         # 3.1 源头质量过滤：剔除过短/ASCII艺术/纯标题/纯符号碎片
         chunks_with_pages, rejected = _filter_chunks_ingestion(chunks_with_pages, doc_id)
@@ -190,14 +198,14 @@ async def ingest_document(
                         **(doc.status_detail or {}),
                         "duplicate_check": {
                             "duplicates_found": dup_result["duplicates_found"],
-                            "auto_superseded": dup_result["auto_superseded"],
+                            "auto_deleted": dup_result["auto_deleted"],
                         },
                     }
                     await db.flush()
                     logger.info(
                         f"ingestion_duplicate_check doc_id={doc_id} "
                         f"found={dup_result['duplicates_found']} "
-                        f"auto_superseded={dup_result['auto_superseded']}"
+                        f"auto_deleted={dup_result['auto_deleted']}"
                     )
             except Exception:
                 logger.warning(

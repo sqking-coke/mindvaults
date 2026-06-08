@@ -681,3 +681,44 @@ async def delete_concept(db: AsyncSession, concept_id: int) -> bool:
     await db.delete(c)
     await db.commit()
     return True
+
+
+async def cleanup_orphan_concepts(
+    db: AsyncSession, kb_id: int | None = None,
+) -> dict:
+    """一键清除所有没有 chunk 引用的孤儿概念。
+
+    Args:
+        kb_id: 指定 KB，为 None 则清理所有 KB
+
+    Returns:
+        {"deleted": int} — 已删除的概念数
+    """
+    from app.utils.logger import log_event
+
+    # 收集所有有 chunk 引用的 concept_id
+    active_sub = select(KbChunkConcept.concept_id).group_by(KbChunkConcept.concept_id)
+
+    # 查询孤儿概念
+    orphan_q = select(KbConcept.id).where(
+        ~KbConcept.id.in_(active_sub)
+    )
+    if kb_id is not None:
+        orphan_q = orphan_q.where(KbConcept.kb_id == kb_id)
+
+    orphan_ids = (await db.execute(orphan_q)).scalars().all()
+    if not orphan_ids:
+        return {"deleted": 0}
+
+    # 物理删除
+    orphan_rows = (await db.execute(
+        select(KbConcept).where(KbConcept.id.in_(orphan_ids))
+    )).scalars().all()
+    deleted = 0
+    for c in orphan_rows:
+        await db.delete(c)
+        deleted += 1
+    await db.commit()
+    logger.info(f"orphan_concepts_cleaned kb_id={kb_id} deleted={deleted}")
+    log_event("concept_orphans_cleaned", kb_id=kb_id, deleted=deleted)
+    return {"deleted": deleted}

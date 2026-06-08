@@ -386,22 +386,24 @@ async def check_new_content_duplicates(
     """摄入时即时检测：新 chunk vs 存量 active chunk 的重复度。
 
     对每个新 chunk 查询 top-3 近邻（余弦相似度 > 0.92），
-    sim > 0.98 且同文档 → 自动标记 superseded（如 auto_merge=True）。
+    sim > 0.98 且同文档 → 自动物理删除质量较低的 chunk（如 auto_merge=True）。
 
-    返回摘要：{duplicates_found, auto_superseded, groups: [...]}
+    原文保留不受影响，删除的切片可通过重索引恢复。
+    返回摘要：{duplicates_found, auto_deleted, groups: [...]}
     """
     if not new_chunk_ids:
-        return {"duplicates_found": 0, "auto_superseded": 0, "groups": []}
+        return {"duplicates_found": 0, "auto_deleted": 0, "groups": []}
 
     new_chunks = (
         await db.execute(select(KbChunk).where(KbChunk.id.in_(new_chunk_ids)))
     ).scalars().all()
 
     if not new_chunks:
-        return {"duplicates_found": 0, "auto_superseded": 0, "groups": []}
+        return {"duplicates_found": 0, "auto_deleted": 0, "groups": []}
 
     groups = []
-    auto_superseded = 0
+    auto_deleted = 0
+    affected_docs: dict[int, int] = {}
 
     for new_chunk in new_chunks:
         vec = type_coerce(new_chunk.embedding, Vector(1024))
@@ -459,35 +461,30 @@ async def check_new_content_duplicates(
                 new_chunk.quality_score = new_score
 
                 if n.quality_score and new_score >= n.quality_score:
+                    # 新 chunk 质量更高 → 删除存量 chunk
                     existing = await db.get(KbChunk, n.id)
                     if existing:
-                        existing.status = "superseded"
-                        existing.superseded_by = new_chunk.id
-                        if not await _link_exists(db, kb_id, new_chunk.id, n.id, "supersedes"):
-                            db.add(KbChunkLink(
-                                kb_id=kb_id,
-                                source_chunk_id=new_chunk.id,
-                                target_chunk_id=n.id,
-                                link_type="supersedes",
-                            ))
-                        auto_superseded += 1
-                        match["auto_superseded"] = True
+                        affected_docs[existing.document_id] = affected_docs.get(existing.document_id, 0) + 1
+                        await db.delete(existing)
+                        auto_deleted += 1
+                        match["auto_deleted"] = True
                 else:
-                    new_chunk.status = "superseded"
-                    new_chunk.superseded_by = n.id
-                    if not await _link_exists(db, kb_id, n.id, new_chunk.id, "supersedes"):
-                        db.add(KbChunkLink(
-                            kb_id=kb_id,
-                            source_chunk_id=n.id,
-                            target_chunk_id=new_chunk.id,
-                            link_type="supersedes",
-                        ))
-                    auto_superseded += 1
-                    match["auto_superseded"] = True
+                    # 存量 chunk 质量更高 → 删除新 chunk
+                    affected_docs[new_chunk.document_id] = affected_docs.get(new_chunk.document_id, 0) + 1
+                    await db.delete(new_chunk)
+                    auto_deleted += 1
+                    match["auto_deleted"] = True
+                    # 新 chunk 已删除，后续匹配跳过
                     break
 
         if group["matches"]:
             groups.append(group)
+
+    # 更新受影响文档的 chunk_count
+    for doc_id, delta in affected_docs.items():
+        doc = await db.get(KbDocument, doc_id)
+        if doc is not None:
+            doc.chunk_count = max(0, doc.chunk_count - delta)
 
     if groups:
         log_event(
@@ -495,12 +492,12 @@ async def check_new_content_duplicates(
             kb_id=kb_id,
             new_chunks=len(new_chunk_ids),
             groups=len(groups),
-            auto_superseded=auto_superseded,
+            auto_deleted=auto_deleted,
         )
 
     return {
         "duplicates_found": len(groups),
-        "auto_superseded": auto_superseded,
+        "auto_deleted": auto_deleted,
         "groups": groups,
     }
 
@@ -604,7 +601,10 @@ async def merge_chunks(
     keep_chunk_id: int,
     supersede_chunk_ids: list[int],
 ) -> dict:
-    """合并重复 chunk：保留一个，其余标记 superseded，创建 supersedes 关联。
+    """合并重复 chunk：保留一个，物理删除其余。
+
+    原文保留在 kb_documents 中不受影响，用户可随时重索引恢复切片。
+    同时清理被删 chunk 的 chunk_link 关联。
 
     返回操作摘要。
     """
@@ -617,23 +617,35 @@ async def merge_chunks(
     keep_score = await compute_quality_score(db, keep_chunk)
     keep_chunk.quality_score = keep_score
 
-    superseded_count = 0
+    deleted_count = 0
+    affected_doc_ids: dict[int, int] = {}  # doc_id → 删除数
     for cid in supersede_chunk_ids:
         chunk = await db.get(KbChunk, cid)
         if chunk is None:
             continue
-        chunk.status = "superseded"
-        chunk.superseded_by = keep_chunk_id
-        superseded_count += 1
+        doc_id = chunk.document_id
+        affected_doc_ids[doc_id] = affected_doc_ids.get(doc_id, 0) + 1
 
-        # 创建 supersedes 关联（避免重复：摄入自动合并可能已建）
-        if not await _link_exists(db, kb_id, keep_chunk_id, cid, "supersedes"):
-            db.add(KbChunkLink(
-                kb_id=kb_id,
-                source_chunk_id=keep_chunk_id,
-                target_chunk_id=cid,
-                link_type="supersedes",
-            ))
+        # 物理删除该 chunk
+        await db.delete(chunk)
+        deleted_count += 1
+
+    # 清理引用已删除 chunk 的 link
+    if supersede_chunk_ids:
+        link_stmt = select(KbChunkLink).where(
+            KbChunkLink.kb_id == kb_id,
+            KbChunkLink.link_type == "supersedes",
+            KbChunkLink.target_chunk_id.in_(supersede_chunk_ids),
+        )
+        stale_links = (await db.execute(link_stmt)).scalars().all()
+        for link in stale_links:
+            await db.delete(link)
+
+    # 更新受影响文档的 chunk_count
+    for doc_id, delta in affected_doc_ids.items():
+        doc = await db.get(KbDocument, doc_id)
+        if doc is not None:
+            doc.chunk_count = max(0, doc.chunk_count - delta)
 
     # 更新最新报告的 details_json：标记已合并组、重算健康分
     all_superseded_ids = set(supersede_chunk_ids)
@@ -669,15 +681,19 @@ async def merge_chunks(
             flag_modified(latest_report, "details_json")
             await db.flush()
 
+    # 也需更新 total_chunks（我们刚删了切片）
+    if latest_report and deleted_count > 0:
+        latest_report.total_chunks = max(0, latest_report.total_chunks - deleted_count)
+
     log_event(
         "health_chunk_merged",
         kb_id=kb_id,
         keep_chunk_id=keep_chunk_id,
-        superseded_count=superseded_count,
+        deleted_count=deleted_count,
     )
     return {
         "keep_chunk_id": keep_chunk_id,
-        "superseded_count": superseded_count,
+        "deleted_count": deleted_count,
         "keep_quality_score": keep_score,
     }
 
@@ -733,17 +749,28 @@ async def unlink_chunks(
 
 
 async def cleanup_orphans(db: AsyncSession, kb_id: int) -> dict:
-    """将孤岛 chunk 标记为 orphan 状态（不物理删除）。"""
+    """物理删除孤岛 chunk（源文档已删除或 insight 已拒绝）。
+
+    原文保留不受影响，如需恢复可重新摄入源文档。
+    """
     orphans = await detect_orphans(db, kb_id)
     count = 0
+    affected_doc_ids: dict[int, int] = {}  # doc_id → 删除数
     for item in orphans:
         chunk = await db.get(KbChunk, item["id"])
         if chunk:
-            chunk.status = "orphan"
+            doc_id = chunk.document_id
+            affected_doc_ids[doc_id] = affected_doc_ids.get(doc_id, 0) + 1
+            await db.delete(chunk)
             count += 1
 
+    for doc_id, delta in affected_doc_ids.items():
+        doc = await db.get(KbDocument, doc_id)
+        if doc is not None:
+            doc.chunk_count = max(0, doc.chunk_count - delta)
+
     log_event("health_orphans_cleaned", kb_id=kb_id, count=count)
-    return {"orphaned_count": count}
+    return {"deleted_count": count}
 
 
 async def archive_low_quality_chunks(
@@ -751,17 +778,28 @@ async def archive_low_quality_chunks(
     kb_id: int,
     chunk_ids: list[int],
 ) -> dict:
-    """将低质量 chunk 归档（status → archived，不参与检索）。"""
-    archived = 0
+    """物理删除低质量 chunk。
+
+    原文保留不受影响，用户可随时重索引恢复切片。
+    """
+    deleted = 0
+    affected_doc_ids: dict[int, int] = {}
     for cid in chunk_ids:
         chunk = await db.get(KbChunk, cid)
         if chunk is None:
             continue
-        chunk.status = "archived"
-        archived += 1
+        doc_id = chunk.document_id
+        affected_doc_ids[doc_id] = affected_doc_ids.get(doc_id, 0) + 1
+        await db.delete(chunk)
+        deleted += 1
 
-    log_event("health_chunks_archived", kb_id=kb_id, count=archived)
-    return {"archived_count": archived}
+    for doc_id, delta in affected_doc_ids.items():
+        doc = await db.get(KbDocument, doc_id)
+        if doc is not None:
+            doc.chunk_count = max(0, doc.chunk_count - delta)
+
+    log_event("health_chunks_archived", kb_id=kb_id, count=deleted)
+    return {"deleted_count": deleted}
 
 
 async def resolve_report(db: AsyncSession, report_id: int) -> dict:

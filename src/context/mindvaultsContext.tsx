@@ -153,6 +153,8 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadSystemConfig();
     loadOllamaModels();
 
+    const savedKbId = localStorage.getItem("mv_active_kb_id");
+
     let cancelled = false;
 
     (async () => {
@@ -166,6 +168,12 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         } else {
           setKnowledgeBases([getDefaultKnowledgeBase()]);
         }
+
+        // 恢复上次选择的 KB，或选第一个
+        const restoredId = savedKbId && kbs.some(k => String(k.id) === savedKbId)
+          ? savedKbId
+          : kbs.length > 0 ? String(kbs[0].id) : null;
+        if (restoredId) setActiveKbId(restoredId);
 
         // 加载文档（默认取第一个 KB，用于知识中心展示）
         const kbId = kbs.length > 0 ? kbs[0].id : 1;
