@@ -28,26 +28,27 @@ mindvaults 是一款 **RAG（检索增强生成）知识库问答系统**，支�
 
 ```mermaid
 flowchart LR
-    A[📄 上传文档] --> B[🔪 智能切片]
-    V[📓 Obsidian Vault] --> B
+    A[📄 文档上传] --> P[🧹 文档预处理<br/>MD/PDF/TXT]
+    V[📓 Obsidian Vault] --> P
+    P --> B[🔪 语义切片]
     B --> C[🧬 向量化 Embedding]
-    C --> D[💾 pgvector 存储]
-    E[❓ 用户提问] --> R[🧠 智能路由]
-    R --> F[🔍 语义检索]
+    C --> D[(💾 pgvector)]
+
+    E[❓ 用户提问] --> R[🧠 智能路由<br/>3 层降级]
+    R --> F[🔍 语义检索<br/>HNSW + cosine]
     D --> F
     F --> G[🎯 Reranker 精排]
-    G --> H[🧠 LLM 生成答案]
+    G --> H[🤖 LLM 生成]
+    K -->|术语注入| H
     H --> I[📎 答案 + 引用溯源]
 
+    C -->|🏷️ 术语抽取| K[🕸️ 概念网络]
     H -->|💡 知识沉淀| J[🗃️ 审核入库]
     W[💬 外部对话<br/>Claude Code] -.->|Skill 推送| J
     J -->|回流| D
 
-    C -->|🏷️ 术语抽取| K[🕸️ 概念网络]
-    K -->|上下文注入| H
-
-    D -->|💊 定期诊断| L[📊 健康报告]
-    L -->|去重/清理| D
+    D -->|💊 定期扫描| L[📊 健康报告<br/>5 维诊断]
+    L -->|合并/清理| D
 ```
 ---
 
@@ -128,28 +129,41 @@ flowchart TB
     subgraph 输入["📥 知识输入"]
         A[📄 文档上传]
         B[📓 Obsidian Vault]
-        C[💬 外部对话<br/>Claude Code / Copilot]
+        C[💬 外部对话<br/>Claude Code]
+    end
+
+    subgraph 管道["⚙️ 摄入管道"]
+        P[🧹 文档预处理<br/>MD Section 树<br/>PDF 跨页清洗<br/>TXT 噪声过滤]
+        S[🔪 语义切片]
+        E[🧬 向量化]
     end
 
     subgraph 检索["🔍 检索问答"]
-        D[🧠 智能路由<br/>自动匹配最佳 KB]
-        E[📎 RAG 问答<br/>引用溯源 + 概念注入]
+        R[🧠 智能路由]
+        Q[📎 RAG 问答<br/>引用溯源 + 概念注入]
     end
 
     subgraph 治理["🗃️ 数据治理"]
+        K[🏷️ 概念网络<br/>自动抽取 / 手动创建<br/>查找关联切片]
         F[💡 知识沉淀<br/>QA 提炼 → 审核 → 入库]
-        G[🏷️ 概念网络<br/>术语抽取 + hover 解释]
-        H[💊 内容治理<br/>去重 / 质量评分 / 健康报告]
+        H[💊 健康中心<br/>5 维诊断 / 物理合并<br/>孤岛清理]
     end
 
-    A --> D
-    B --> D
-    C --> F
-    D --> E
-    E --> F
-    F --> G
-    G --> H
-    H -.->|"回流优质知识"| D
+    A --> P
+    B --> P
+    P --> S --> E --> D[(💾 pgvector)]
+
+    C -.->|Skill 推送| F
+    R --> Q
+    D --> R
+    D --> Q
+    Q --> F
+    Q --> K
+    E --> K
+
+    D -->|定期扫描| H
+    H -->|合并/清理| D
+    F -->|回流| D
 ```
 
 ### 🧠 智能路由 — 不用手动选知识库
@@ -172,9 +186,9 @@ flowchart TB
 
 - **多维度诊断**：近重复检测（向量相似度）、低质量识别（短 chunk / 纯符号）、过时标记（版本号 / 时间衰减）、孤岛清理、碎片簇发现
 - **健康报告**：定期全库扫描生成健康度评分，量化知识库质量，用户逐条决策（采纳推荐 / 合并 / 保留链接 / 跳过）
-- **生命周期管理**：Chunk 从 `active` → `superseded` → 检索自动排除，质量评分驱动合并决策，操作可逆
+- **生命周期管理**：合并/清理直接物理删除重复/低质量切片，原文不受影响，重索引即可恢复
 
-> 📖 详细设计：[数据治理总览](docs/planning/20-基座复盘与数据治理总览.md) · [智能路由](docs/planning/15-KB智能路由.md) · [知识沉淀](docs/planning/16-对话知识沉淀.md) · [Skill 集成](docs/planning/17-Skill集成-知识沉淀入口.md) · [概念关联](docs/planning/18-概念术语关联.md) · [内容再组织](docs/planning/19-知识库内容再组织.md)
+> 📖 详细设计：[文档预处理](docs/planning/20-文档预处理服务.md) · [智能路由](docs/planning/15-KB智能路由.md) · [知识沉淀](docs/planning/16-对话知识沉淀.md) · [Skill 集成](docs/planning/17-Skill集成-知识沉淀入口.md) · [概念关联](docs/planning/18-概念术语关联.md) · [内容再组织](docs/planning/19-知识库内容再组织.md)
 
 ## 技术栈
 
