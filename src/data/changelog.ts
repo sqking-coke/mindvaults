@@ -8,6 +8,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v0.8.0",
+    date: "2026-06-08",
+    title: "文档预处理服务 + 知识库健康治理",
+    description:
+      "文档预处理服务（preprocessor/）：MD 用 Section 树解析+弹性映射（目标 500±30%），代码块/表格 unsplittable 保护，换行归一化。PDF 跨页页眉页脚检测+ASCII 图表移除+断行修复（CJK）+标题识别。TXT 噪声行过滤+空行归拢+邮件头归一化。PreprocessorRouter 按文件类型分发，接入 ingestion_service（parser→preprocessor→chunker）。清除 chunking_service 旧 structured 模式 237 行。健康中心 merge/cleanup/archive 改为物理 DELETE（原文可重索引恢复），同步文档 chunk_count。概念管理：手动创建弹窗加 KB 选择器+查找关联切片+候选列表勾选，一键清理孤岛概念，概念列表不再按 KB 筛选，页面加载自动恢复 localStorage KB 选择。新增 suggest-chunks API（embd 读 DB system_config）。新增 blog/06-知识库健康中心方案.m0d。版本号升至 v0.8.0。",
+    tags: ["feature", "refactor", "docs"],
+  },
+  {
     version: "v0.7.0",
     date: "2026-06-07",
     title: "概念术语关联底座",
