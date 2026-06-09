@@ -35,8 +35,11 @@ _LIST_RE = re.compile(r"^\s*[-*+]\s+|\s*\d+[.)]\s+")
 # 表格分隔线
 _TABLE_SEP_RE = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")
 
+# 表格数据行（以 | 开头、含 | 结尾，非分隔线）
+_TABLE_ROW_RE = re.compile(r"^\s*\|.+\|\s*$")
+
 # 行类型
-_LINE_TYPES = ("heading", "fence", "code", "box", "list", "table_sep", "blank", "text")
+_LINE_TYPES = ("heading", "fence", "code", "box", "list", "table_sep", "table_row", "blank", "text")
 
 # 短段落阈值
 _SHORT_THRESHOLD = 120
@@ -63,6 +66,9 @@ def _classify_line(line: str, in_code_block: bool) -> str:
     if _TABLE_SEP_RE.match(stripped):
         return "table_sep"
 
+    if _TABLE_ROW_RE.match(stripped):
+        return "table_row"
+
     # Box drawing 占比 > 10%，或行首/行尾有框线字符
     box_chars = len(_BOX_RE.findall(line))
     if box_chars > 0 and (
@@ -86,7 +92,12 @@ def _classify_line(line: str, in_code_block: bool) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 def _build_blocks(lines: list[str]) -> list[dict]:
-    """将连续同类型行归并为块。"""
+    """将连续同类型行归并为块。
+
+    特殊处理：
+      - table_row + table_sep 合并为单一 "table" 块
+      - fence 切换代码块状态
+    """
     blocks: list[dict] = []
     in_code = False
 
@@ -98,19 +109,29 @@ def _build_blocks(lines: list[str]) -> list[dict]:
         if line_type == "fence":
             in_code = not in_code
 
-        # 合并同类型连续行
+        # 合并同类型连续行 + 表格行组
         j = i + 1
         while j < len(lines):
             nt = _classify_line(lines[j], in_code)
-            if nt == line_type and nt not in ("fence", "heading"):
+            # 表格行和表格分隔线合并为同一 table 块
+            if line_type in ("table_row", "table_sep") and nt in ("table_row", "table_sep"):
+                if nt == "table_row":
+                    line_type = "table_row"  # 保持以 table_row 为块类型名
+                buf.append(lines[j])
+                j += 1
+            elif nt == line_type and nt not in ("fence", "heading"):
                 buf.append(lines[j])
                 j += 1
             else:
                 break
 
         text = "\n".join(buf).strip()
+
+        # 统一表格块类型名
+        block_type = "table" if line_type in ("table_row", "table_sep") else line_type
+
         blocks.append({
-            "type": line_type,
+            "type": block_type,
             "text": text,
             "len": len(text),
         })
@@ -135,10 +156,13 @@ def _merge_blocks(blocks: list[dict]) -> list[str]:
         if cur["type"] == "box":
             i += 1
             continue
-        if cur["type"] == "table_sep":
+        if cur["type"] == "blank":
             i += 1
             continue
-        if cur["type"] == "blank":
+
+        # ── 表格块 → 完整保留 ──────────────────
+        if cur["type"] == "table":
+            merged.append(cur["text"])
             i += 1
             continue
 

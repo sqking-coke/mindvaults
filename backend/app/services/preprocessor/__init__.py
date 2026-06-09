@@ -9,11 +9,10 @@
 MD 使用 Section 树解析 + 弹性映射，PDF/TXT/DOCX 使用逐页清洗 + 公共归拢。
 """
 from app.services.preprocessor.base import BasePreprocessor
+from app.services.preprocessor.docx import DocxPreprocessor
 from app.services.preprocessor.markdown import MarkdownPreprocessor
 from app.services.preprocessor.pdf import PDFPreprocessor
 from app.services.preprocessor.txt import TxtPreprocessor
-
-# DOCX 为 P2，暂不导入
 
 
 class PreprocessorRouter:
@@ -29,8 +28,8 @@ class PreprocessorRouter:
             "md": MarkdownPreprocessor(),
             "pdf": PDFPreprocessor(),
             "txt": TxtPreprocessor(),
-            # "docx": DocxPreprocessor(),   # P2
-            # "doc": DocxPreprocessor(),    # P2
+            "docx": DocxPreprocessor(),
+            "doc": DocxPreprocessor(),
         }
 
     async def preprocess(
