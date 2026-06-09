@@ -16,6 +16,7 @@ from app.schemas.chat import ChatRequest, RefChunk
 from app.services.embedding_service import embed_text
 from app.services.retrieval_service import retrieve_chunks
 from app.services.llm_service import generate_stream
+from app.services.monitor_service import write_event
 
 
 MAX_HISTORY_TURNS = 5
@@ -188,6 +189,8 @@ async def chat_stream(
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5002
         logger.error(f"rag_embedding_failed session_id={req.session_id} error=\"{exc}\"")
+        await write_event(db, category="system", event="embedding_failed",
+            session_id=req.session_id, status="failed", message=str(exc)[:200])
         if session is None:
             await db.rollback()
             yield ("error", json.dumps({"code": error_code, "message": str(exc)}))
@@ -211,6 +214,25 @@ async def chat_stream(
         sys_cfg=sys_cfg, provider=provider, base_url=base_url,
         model=model, api_key=api_key,
     )
+
+    # 写入路由监控事件
+    if routing_event:
+        method = routing_event.get("method", "")
+        if method == "centroid_hit":
+            await write_event(db, category="routing", event="centroid_hit",
+                kb_id=routing_event.get("kb_id"), session_id=req.session_id,
+                value_float=routing_event.get("distance"), status="success")
+        elif method == "llm_route":
+            await write_event(db, category="routing", event="llm_route_hit",
+                kb_id=routing_event.get("kb_id"), session_id=req.session_id,
+                value_float=routing_event.get("confidence"), status="success")
+        elif method == "fallback":
+            await write_event(db, category="routing", event="route_fallback",
+                session_id=req.session_id, status="warning",
+                extra_json=routing_event)
+    elif resolved_kb_id is not None:
+        await write_event(db, category="routing", event="route_manual",
+            kb_id=resolved_kb_id, session_id=req.session_id, status="success")
 
     # Layer 3 未命中 → 返回引导消息给前端
     if routing_event and routing_event.get("method") == "fallback":
@@ -237,7 +259,8 @@ async def chat_stream(
         yield ("error", json.dumps({"code": 4001, "message": fallback_msg, "route_fallback": True}))
         # 如果已创建 session，确保提交
         if session is None:
-            # 尚未创建 session，回滚
+            # 尚未创建 session，但需要提交 write_event 的监控数据
+            await db.commit()
             return
         record = KbQaRecord(
             session_id=session.id,
@@ -317,6 +340,8 @@ async def chat_stream(
         yield ("progress", json.dumps(step))
     except Exception:
         # Reranker 不可用时退化为原始排序
+        await write_event(db, category="system", event="rerank_failed",
+            session_id=req.session_id, status="warning")
         chunks = candidate_chunks[:k]
 
     # 按文档去重汇总
@@ -359,14 +384,27 @@ async def chat_stream(
     user_prompt = f"参考文档：\n\n{context}\n{history}\n用户问题：{req.question}\n\n请回答："
 
     full_answer = ""
+    llm_start = time.time()
     try:
         system_prompt = sys_cfg.system_prompt.strip() if sys_cfg and sys_cfg.system_prompt else DEFAULT_SYSTEM_PROMPT
         async for token in generate_stream(system_prompt, user_prompt, provider=provider, base_url=base_url, model=model, api_key=api_key):
             full_answer += token
             yield ("token", json.dumps({"content": token}))
+        # LLM 调用成功 — 写入监控事件
+        llm_duration = round(time.time() - llm_start, 3)
+        # 粗略估算 token 数: 中文 ~1.5 chars/token, 英文 ~4 chars/token
+        est_input_tokens = len(system_prompt + user_prompt) // 3
+        est_output_tokens = len(full_answer) // 3
+        await write_event(db, category="system", event="llm_call_completed",
+            session_id=req.session_id, value_float=llm_duration,
+            value_int=est_input_tokens + est_output_tokens, status="success",
+            extra_json={"input_tokens": est_input_tokens, "output_tokens": est_output_tokens,
+                        "model": model, "provider": provider})
     except Exception as exc:
         error_code = exc.code if isinstance(exc, AppException) else 5001
         logger.error(f"rag_llm_failed session_id={req.session_id} provider={provider} model={model} error=\"{exc}\"")
+        await write_event(db, category="system", event="llm_generation_failed",
+            session_id=req.session_id, status="failed", message=str(exc)[:200])
         record = KbQaRecord(
             session_id=session.id,
             question=req.question,

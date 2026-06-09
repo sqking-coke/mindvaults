@@ -469,3 +469,44 @@ export interface ScheduleStatus {
 export async function fetchScheduleStatus(signal?: AbortSignal): Promise<ScheduleStatus> {
   return api.get<ScheduleStatus>("/api/v1/kb/insights/schedule-status", signal);
 }
+
+// ==================== 监控告警 (#21) ====================
+
+import type { DashboardData, MonitorEventItem, AlertConfig } from "@/types/api";
+
+export async function fetchMonitorDashboard(signal?: AbortSignal): Promise<DashboardData> {
+  return api.get<DashboardData>("/api/v1/kb/monitor/dashboard", signal);
+}
+
+export async function fetchMonitorEvents(
+  params?: { category?: string; status?: string; page?: number; page_size?: number },
+  signal?: AbortSignal,
+): Promise<{ items: MonitorEventItem[]; total: number; page: number; page_size: number }> {
+  const searchParams = new URLSearchParams();
+  if (params?.category) searchParams.set("category", params.category);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.page_size) searchParams.set("page_size", String(params.page_size));
+  const qs = searchParams.toString();
+  return api.get(`/api/v1/kb/monitor/events${qs ? `?${qs}` : ""}`, signal);
+}
+
+export async function fetchMonitorAlerts(signal?: AbortSignal): Promise<{ alerts: Array<{ rule: string; severity: string; message: string; value: number; threshold: number }>; count: number }> {
+  return api.get("/api/v1/kb/monitor/alerts", signal);
+}
+
+export async function fetchAlertConfig(signal?: AbortSignal): Promise<AlertConfig> {
+  return api.get<AlertConfig>("/api/v1/kb/monitor/alert-config", signal);
+}
+
+export async function updateAlertConfig(config: AlertConfig, signal?: AbortSignal): Promise<AlertConfig> {
+  return api.put<AlertConfig>("/api/v1/kb/monitor/alert-config", config, signal);
+}
+
+export async function resolveAlert(eventId: number, signal?: AbortSignal): Promise<{ resolved: boolean; event_id?: number; message?: string }> {
+  return api.post(`/api/v1/kb/monitor/alerts/${eventId}/resolve`, undefined, signal);
+}
+
+export async function resolveAllAlerts(signal?: AbortSignal): Promise<{ resolved: boolean; count: number }> {
+  return api.post("/api/v1/kb/monitor/alerts/resolve-all", undefined, signal);
+}

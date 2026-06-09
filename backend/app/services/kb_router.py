@@ -8,6 +8,7 @@ import json
 import math
 
 import httpx
+from app.services.monitor_service import write_event
 from loguru import logger
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -150,6 +151,8 @@ async def route_kb_by_llm(
         result = _parse_json_response(response_text)
         if result is None:
             logger.warning(f"llm_route_parse_failed response={response_text[:200]}")
+            await write_event(db, category="routing", event="llm_route_parse_failed",
+                status="warning", message=f"response={response_text[:100]}")
             return None
 
         kb_id = result.get("kb_id")
@@ -159,6 +162,9 @@ async def route_kb_by_llm(
         target_kb = await db.get(KnowledgeBase, kb_id)
         if target_kb is None:
             logger.warning(f"llm_route_invalid_kb_id returned_kb_id={kb_id}")
+            await write_event(db, category="routing", event="llm_route_invalid_kb_id",
+                status="failed", value_int=kb_id,
+                extra_json={"returned_kb_id": kb_id})
             return None
 
         if confidence < confidence_threshold:
@@ -166,6 +172,8 @@ async def route_kb_by_llm(
                 f"llm_route_miss kb_id={kb_id} kb_name={target_kb.name} "
                 f"confidence={confidence:.2f} threshold={confidence_threshold}"
             )
+            await write_event(db, category="routing", event="llm_route_miss",
+                status="warning", kb_id=kb_id, value_float=confidence)
             return None
 
         logger.info(
@@ -179,8 +187,10 @@ async def route_kb_by_llm(
             "method": "llm_route",
         }
 
-    except Exception:
+    except Exception as exc:
         logger.error(f"llm_route_failed question_len={len(question)}")
+        await write_event(db, category="routing", event="llm_route_failed",
+            status="failed", message=str(exc)[:200])
         return None
 
 
@@ -220,6 +230,8 @@ async def resolve_kb(
             }
         # 指定的 KB 不存在 → 回退自动路由
         logger.warning(f"resolve_kb_specified_not_found kb_id={kb_id} → fallback")
+        await write_event(db, category="routing", event="route_invalid_kb_id",
+            status="warning", value_int=kb_id)
 
     # kb_id=0 → 全库搜索
     if kb_id == 0:

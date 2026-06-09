@@ -50,6 +50,16 @@ class SystemConfig(Base):
     # 外部 Skill 插件推送认证 Key
     external_api_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
+    # 监控告警配置
+    alert_llm_route_fail_threshold: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    alert_fallback_rate_threshold: Mapped[float] = mapped_column(Float, default=0.20, nullable=False)
+    alert_centroid_fail: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_external_push_fail: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_insight_batch_fail: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_health_scan_fail: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_concept_extraction_fail: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    alert_slow_call_threshold: Mapped[float] = mapped_column(Float, default=5.0, nullable=False)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

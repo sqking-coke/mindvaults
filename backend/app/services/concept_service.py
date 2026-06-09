@@ -13,6 +13,7 @@ from loguru import logger
 from sqlalchemy import select, func, text, delete, type_coerce
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.monitor_service import write_event
 from sqlalchemy.dialects.postgresql import ARRAY
 from pgvector.sqlalchemy import Vector
 
@@ -220,6 +221,9 @@ async def extract_concepts(
             logger.warning(
                 f"concept_extraction_llm_failed chunk_id={chunk_id} error=\"{exc}\""
             )
+            await write_event(db, category="concept", event="concept_extraction_failed",
+                kb_id=kb_id, status="failed", message=str(exc)[:200],
+                extra_json={"chunk_id": chunk_id})
             continue
 
         terms = _parse_extraction_response(raw)
@@ -413,6 +417,9 @@ async def extract_concepts(
             await db.commit()
         except Exception as exc:
             logger.warning(f"concept_extraction_commit_failed chunk_id={chunk_id} error=\"{exc}\"")
+            await write_event(db, category="concept", event="concept_commit_failed",
+                kb_id=kb_id, status="failed", message=str(exc)[:200],
+                extra_json={"chunk_id": chunk_id})
             await db.rollback()
             # 继续下一个 chunk
             continue
@@ -421,6 +428,9 @@ async def extract_concepts(
         f"concept_extraction_completed chunks={len(chunks)} "
         f"created={total_created} updated={total_updated}"
     )
+    await write_event(db, category="concept", event="concept_extraction_completed",
+        value_int=total_created + total_updated, status="success",
+        extra_json={"chunks": len(chunks), "created": total_created, "updated": total_updated})
     return total_created + total_updated
 
 

@@ -33,6 +33,7 @@ from app.schemas.document import (
 )
 from app.services.ingestion_service import schedule_ingestion
 from app.utils.logger import log_event
+from app.services.monitor_service import write_event
 from app.services.cache_service import CacheService
 from app.core.database import AsyncSessionLocal
 from app.core.redis import get_redis
@@ -111,6 +112,9 @@ async def upload_documents(
         ingestion_queue.append((doc.id, ext, str(dest_path)))
 
         log_event("doc_uploaded", doc_id=doc.id, kb_id=kb_id, file=doc.doc_name)
+        await write_event(db, category="system", event="doc_uploaded",
+            kb_id=kb_id, value_int=1, status="success",
+            extra_json={"doc_name": doc.doc_name, "doc_type": ext})
 
     await db.commit()
 

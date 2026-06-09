@@ -10,6 +10,7 @@ from app.models.chunk import KbChunk
 from app.models.document import KbDocument, DOC_STATUS_PROCESSING, DOC_STATUS_COMPLETED, DOC_STATUS_FAILED
 from app.models.config import KbConfig
 from app.utils.logger import log_event
+from app.services.monitor_service import write_event
 from app.services.parser_service import parse_document
 from app.services.chunking_service import chunk_pages
 from app.services.preprocessor import get_preprocessor
@@ -148,6 +149,9 @@ async def ingest_document(
         doc.status_detail = {"phase": "done", "chunks": actual_count, "finished_at": datetime.now(timezone.utc).isoformat()}
         await db.commit()
         log_event("doc_ingestion_completed", doc_id=doc_id, type=doc_type, chunks=actual_count)
+        await write_event(db, category="system", event="doc_ingestion_completed",
+            kb_id=doc.kb_id, value_int=actual_count, status="success",
+            extra_json={"doc_id": doc_id, "doc_type": doc_type})
 
         # 异步更新质心向量（KB 智能路由 Layer 1 依赖）
         try:
@@ -214,6 +218,15 @@ async def ingest_document(
 
     except Exception as exc:
         logger.error(f"doc_ingestion_failed doc_id={doc_id} error=\"{exc}\"")
+        # 写入失败事件（需要新建 session，因为当前事务即将回滚）
+        try:
+            from app.core.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as fail_db:
+                await write_event(fail_db, category="system", event="doc_ingestion_failed",
+                    value_int=doc_id, status="failed", message=str(exc)[:200])
+                await fail_db.commit()
+        except Exception:
+            pass
         await db.rollback()
         raise  # 向上抛出，由 schedule_ingestion 的重试逻辑处理
 

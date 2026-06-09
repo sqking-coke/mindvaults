@@ -18,6 +18,7 @@ from app.models.document import KbDocument, DOC_STATUS_COMPLETED
 from app.models.external_entry import KbExternalEntry
 from app.models.insight import KbInsight
 from app.models.qa_record import KbQaRecord
+from app.services.monitor_service import write_event
 from app.models.session import KbSession
 from app.models.system_config import SystemConfig
 from app.services.embedding_service import embed_text, resolve_embedding_config
@@ -190,6 +191,9 @@ async def extract_insights(
     logger.info(
         f"insight_extraction_candidates native={native_count} external={external_count}"
     )
+    await write_event(db, category="insight", event="insight_batch_started",
+        value_int=len(items), status="success",
+        extra_json={"native": native_count, "external": external_count})
 
     # ── Step 2：获取 LLM 配置 ─────────────────────────────────
     emb_cfg = await resolve_embedding_config(sys_cfg)
@@ -368,6 +372,11 @@ async def extract_insights(
         f"skipped_short={stats['skipped_short']} skipped_duplicate={stats['skipped_duplicate']} "
         f"auto_approved={stats['auto_approved']} errors={stats['errors']} elapsed_ms={elapsed}"
     )
+    await write_event(db, category="insight", event="insight_batch_completed",
+        value_int=stats["extracted"], value_float=elapsed / 1000,
+        status="success" if stats["errors"] == 0 else "warning",
+        extra_json={"skipped": stats["skipped_short"] + stats["skipped_duplicate"],
+                    "errors": stats["errors"], "auto_approved": stats["auto_approved"]})
 
     return stats
 
@@ -686,6 +695,8 @@ async def process_insight_background(config: dict) -> None:
                 candidates = _parse_extraction_response(response)
             except Exception as exc:
                 logger.error(f"insight_bg_llm_failed id={insight_id} error=\"{exc}\"")
+                await write_event(db, category="insight", event="insight_llm_failed",
+                    value_int=insight_id, status="failed", message=str(exc)[:200])
                 insight.status = "rejected"
                 insight.content = f"[LLM 提炼失败: {exc}]"
                 await db.commit()
@@ -752,6 +763,8 @@ async def process_insight_background(config: dict) -> None:
             # 最后一搏：标记失败
             try:
                 async with AsyncSessionLocal() as fail_db:
+                    await write_event(fail_db, category="insight", event="insight_bg_processing_failed",
+                        value_int=insight_id, status="failed", message=str(exc)[:200])
                     fail_insight = await fail_db.get(KbInsight, insight_id)
                     if fail_insight and fail_insight.status == "processing":
                         fail_insight.status = "rejected"

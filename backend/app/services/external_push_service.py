@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
 from app.models.external_entry import KbExternalEntry
+from app.services.monitor_service import write_event
 from app.models.insight import KbInsight
 from app.models.knowledge_base import KnowledgeBase
 from app.models.system_config import SystemConfig
@@ -155,6 +156,11 @@ async def push_external_entries(
     )
     if reject_reasons:
         logger.info(f"external_push_rejected reasons={reject_reasons}")
+
+    await write_event(db, category="external", event="external_push_received",
+        value_int=received, status="success",
+        extra_json={"platform": platform, "session_id": session_id,
+                    "skipped": skipped, "rejected": rejected, "elapsed_ms": elapsed_ms})
 
     return {
         "received": received,

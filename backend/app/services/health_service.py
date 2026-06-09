@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 from pgvector.sqlalchemy import Vector
 
+from app.services.monitor_service import write_event
 from app.core.exceptions import (
     AppException,
     KbNotFoundError,
@@ -524,6 +525,8 @@ async def scan_health(
         raise KbNotFoundError(f"知识库不存在: id={kb_id}")
 
     log_event("health_scan_started", kb_id=kb_id, scan_type=scan_type)
+    await write_event(db, category="health", event="health_scan_started",
+        kb_id=kb_id, status="success", extra_json={"scan_type": scan_type})
 
     # 统计总 chunk 数
     total_chunks = await db.scalar(
@@ -536,11 +539,17 @@ async def scan_health(
     ) or 0
 
     # 执行各维度检测
-    duplicates = await detect_duplicates(db, kb_id)
-    low_quality = await detect_low_quality(db, kb_id)
-    outdated = await detect_outdated(db, kb_id)
-    orphans = await detect_orphans(db, kb_id)
-    fragment_clusters = await detect_fragment_clusters(db, kb_id)
+    try:
+        duplicates = await detect_duplicates(db, kb_id)
+        low_quality = await detect_low_quality(db, kb_id)
+        outdated = await detect_outdated(db, kb_id)
+        orphans = await detect_orphans(db, kb_id)
+        fragment_clusters = await detect_fragment_clusters(db, kb_id)
+    except Exception as exc:
+        logger.error(f"health_scan_failed kb_id={kb_id} error=\"{exc}\"")
+        await write_event(db, category="health", event="health_scan_failed",
+            kb_id=kb_id, status="failed", message=str(exc)[:200])
+        raise
 
     # 计算健康分
     health_score, breakdown = _compute_health_score(
@@ -587,6 +596,13 @@ async def scan_health(
         fragment_clusters=len(fragment_clusters),
         health_score=f"{health_score:.1f}",
     )
+    await write_event(db, category="health", event="health_scan_completed",
+        kb_id=kb_id, value_float=health_score, status="success",
+        extra_json={
+            "total_chunks": total_chunks, "duplicates": len(duplicates),
+            "low_quality": len(low_quality), "outdated": len(outdated),
+            "orphans": len(orphans), "scan_type": scan_type,
+        })
 
     return report
 

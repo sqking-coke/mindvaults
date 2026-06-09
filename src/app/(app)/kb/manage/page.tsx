@@ -1,37 +1,20 @@
 "use client";
 
 import React, { useState } from "react";
-import { Sparkles, Tag, Heart, Activity, Clock } from "lucide-react";
+import { Sparkles, Tag, Heart, Clock } from "lucide-react";
 import InsightReview from "@/components/insights/InsightReview";
 import SchedulerPanel from "@/components/insights/SchedulerPanel";
 import ConceptPanel from "@/components/concepts/ConceptPanel";
 import HealthCenter from "@/components/health/HealthCenter";
 
-type GovTab = "insights" | "concepts" | "health" | "monitor" | "scheduler";
+type GovTab = "insights" | "concepts" | "health" | "scheduler";
 
 const TABS: { key: GovTab; label: string; icon: React.ReactNode; desc: string }[] = [
   { key: "insights", label: "知识审核", icon: <Sparkles className="h-4 w-4" />, desc: "审核对话提炼的知识点" },
   { key: "concepts", label: "概念管理", icon: <Tag className="h-4 w-4" />, desc: "术语抽取与关联图谱" },
   { key: "health", label: "健康中心", icon: <Heart className="h-4 w-4" />, desc: "知识库质量监控与治理" },
-  { key: "monitor", label: "监控看板", icon: <Activity className="h-4 w-4" />, desc: "系统事件与告警记录" },
   { key: "scheduler", label: "定时任务", icon: <Clock className="h-4 w-4" />, desc: "定时提炼与清理任务的状态和手动触发" },
 ];
-
-function PlaceholderPanel({ title, icon, description }: { title: string; icon: React.ReactNode; description: string }) {
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center py-20 text-slate-400 select-none">
-      <div className="h-16 w-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4 text-slate-300">
-        {icon}
-      </div>
-      <h3 className="text-base font-semibold text-slate-500 mb-2">{title}</h3>
-      <p className="text-sm text-slate-400 max-w-md text-center leading-relaxed">{description}</p>
-      <div className="mt-6 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 text-xs text-slate-500 border border-slate-200">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-        功能开发中，敬请期待
-      </div>
-    </div>
-  );
-}
 
 export default function ManagePage() {
   const [activeTab, setActiveTab] = useState<GovTab>("insights");
@@ -95,13 +78,6 @@ export default function ManagePage() {
           {activeTab === "insights" && <InsightReview />}
           {activeTab === "concepts" && <ConceptPanel />}
           {activeTab === "health" && <HealthCenter />}
-          {activeTab === "monitor" && (
-            <PlaceholderPanel
-              title="监控看板"
-              icon={<Activity className="h-8 w-8" />}
-              description="统一事件总线：提炼任务状态、检索异常、系统资源告警，所有关键事件一览无余。"
-            />
-          )}
           {activeTab === "scheduler" && <SchedulerPanel />}
         </div>
       </div>

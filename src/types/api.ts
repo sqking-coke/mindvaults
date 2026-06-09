@@ -632,3 +632,100 @@ export interface HealthReportItem {
 export interface HealthReportResponse extends HealthReportItem {
   details: HealthReportDetail;
 }
+
+// ==================== 监控告警 (#21) ====================
+
+export interface MonitorEventItem {
+  id: number;
+  category: string;
+  event: string;
+  kb_id: number | null;
+  session_id: string | null;
+  value_int: number | null;
+  value_float: number | null;
+  status: "success" | "failed" | "warning";
+  message: string | null;
+  extra_json: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RouteMetrics {
+  total_routes: number;
+  centroid_hit_rate: number;
+  llm_route_rate: number;
+  fallback_rate: number;
+  total_routes_change: number | null;
+  centroid_hit_rate_change: number | null;
+  llm_route_rate_change: number | null;
+  fallback_rate_change: number | null;
+}
+
+export interface LLMMetrics {
+  call_count: number;
+  avg_duration: number;
+  p99_duration: number;
+  slow_call_count: number;
+  token_input: number;
+  token_output: number;
+  availability: number;
+}
+
+export interface TrendPoint {
+  date: string;
+  value: number;
+}
+
+export interface TrendSeries {
+  label: string;
+  color: string;
+  data: TrendPoint[];
+}
+
+export interface LatencyBucket {
+  label: string;
+  count: number;
+  color: string;
+}
+
+export interface KbHotness {
+  kb_id: number;
+  kb_name: string;
+  count: number;
+}
+
+export interface SystemEventSummary {
+  module: string;
+  module_label: string;
+  success_count: number;
+  failed_count: number;
+}
+
+export interface InsightConceptSummary {
+  insight_count: number;
+  concept_count: number;
+  health_score_avg: number;
+  pending_alerts: number;
+}
+
+export interface DashboardData {
+  active_alerts: MonitorEventItem[];
+  route_metrics: RouteMetrics;
+  llm_metrics: LLMMetrics;
+  route_trend: TrendSeries[];
+  token_trend: TrendSeries[];
+  latency_distribution: LatencyBucket[];
+  kb_hotness: KbHotness[];
+  system_events: SystemEventSummary[];
+  insight_concept: InsightConceptSummary;
+}
+
+export interface AlertConfig {
+  alert_llm_route_fail_threshold: number;
+  alert_fallback_rate_threshold: number;
+  alert_centroid_fail: boolean;
+  alert_external_push_fail: boolean;
+  alert_insight_batch_fail: boolean;
+  alert_health_scan_fail: boolean;
+  alert_concept_extraction_fail: boolean;
+  alert_slow_call_threshold: number;
+}

@@ -327,10 +327,14 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return remaining;
       });
 
-      // 始终同步删除后端数据（消息是懒加载的，不能靠 messages.length 判断）
+      // 同步删除后端数据；空对话后端无记录（404），视为删除成功
       apiDeleteSession(id)
         .then(() => showToast("对话已删除"))
         .catch((err) => {
+          if (err?.code === 3001) {
+            // 会话不存在于后端（空对话），本地已删除即可
+            return;
+          }
           console.error("Failed to delete session on server:", err);
           showToast("删除失败，请重试", "error");
         });
