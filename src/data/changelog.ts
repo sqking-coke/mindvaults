@@ -8,6 +8,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v0.9.0",
+    date: "2026-06-10",
+    title: "监控告警系统",
+    description:
+      "统一监控事件表 kb_monitor_events：一张表承载路由/LLM/提炼/概念/健康/外部推送/文档摄入 7 类事件，resolved_at 字段支持告警解除。监控看板 /kb/monitor 独立页面：暗色主题，折叠告警条 + 8 指标卡（路由+LLM）+ Recharts 趋势图（面积图+堆叠柱状图）+ 耗时分桶直方图 + KB 匹配热度 + 系统事件面板 + 提炼概念摘要 + 告警规则配置面板。告警解除：单条 ✕ + 全部已读，支持看板内修改告警阈值。埋点全链路覆盖：chat/kb_router/insight/external/concept/health/document/ingestion 8 个服务的关键路径。侧边栏新增独立监控看板入口，数据治理移除监控 tab。新增 monitor_service（聚合查询+事件写入）、alert_service（规则检查）、5 个监控 API 端点、seed_monitor_data.py 演示数据脚本。修复新建空会话删除报错（404 静默处理）。blog/07-监控告警系统方案。",
+    tags: ["feature", "docs"],
+  },
+  {
     version: "v0.8.0",
     date: "2026-06-08",
     title: "文档预处理服务 + 知识库健康治理",

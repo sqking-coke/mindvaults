@@ -171,7 +171,7 @@ export default function Sidebar() {
             <img src="/logo.svg" alt="mindvaults" width={36} height={36} className="h-9 w-9 rounded-xl shadow-lg shadow-indigo-500/20" />
             <div>
               <span className="font-bold text-base bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">mindvaults</span>
-              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v0.7.0</span>
+              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v0.9.0</span>
             </div>
           </div>
         )}
