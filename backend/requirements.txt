@@ -20,3 +20,4 @@ slowapi==0.1.9
 pyyaml==6.0.2
 psutil==7.0.0
 apscheduler==3.10.4
+mcp>=1.27

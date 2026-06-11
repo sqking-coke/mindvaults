@@ -1,6 +1,6 @@
 # Skill插件 - 知识沉淀收集
 
-> 状态：✅ 已实现（与原始方案有简化） | 创建：2026-06-02 | 更新：2026-06-05 | 关联：[[16-对话知识沉淀]] [[18-Skill插件开发计划]]
+> 状态：✅ 已实现（与原始方案有简化） | 创建：2026-06-02 | 更新：2026-06-11 | 关联：[[15-本地QA对话知识沉淀]] [[16b-Skill插件开发指南]]
 >
 > **实际实现 vs 原始方案的关键简化：**
 > - API Key：per-KB → 全局 `system_config.external_api_key`（migration 0015）
@@ -117,7 +117,7 @@ CREATE UNIQUE INDEX idx_external_entries_dedup
 ### `kb_insights` 补充字段（在 #16 基础上）
 
 ```sql
--- 在 16-对话知识沉淀.md 设计的 kb_insights 表基础上，增加：
+-- 在 15-本地QA对话知识沉淀.md 设计的 kb_insights 表基础上，增加：
 ALTER TABLE kb_insights
   ADD COLUMN source_type VARCHAR(20) NOT NULL DEFAULT 'native';
   -- 'native' = 来自内部 QA
@@ -310,9 +310,9 @@ POST /api/v1/kb/external/push
 
 ---
 
-## 与 #16 的关系
+## 与 #15 的关系
 
-| 维度 | #16 对话知识沉淀 | 本文 Skill 集成 |
+| 维度 | #15 对话知识沉淀 | 本文 Skill 集成 |
 |------|-----------------|----------------|
 | 数据源 | `kb_qa_records`（内部问答） | `kb_external_entries`（外部对话） |
 | 入口 | 用户使用 mindvaults 自带问答 | Skill 插件在外部 LLM 平台收集 |
@@ -326,7 +326,7 @@ POST /api/v1/kb/external/push
 
 ## 监控埋点
 
-> 详细设计见 [[21-监控告警系统]]
+> 详细设计见 [[20-监控告警系统]]
 
 | event | status | 触发条件 |
 |-------|--------|---------|
