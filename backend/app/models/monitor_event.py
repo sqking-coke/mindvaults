@@ -49,3 +49,8 @@ class KbMonitorEvent(Base):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # 事件来源: web / mcp / scheduler
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="web", server_default="web"
+    )

@@ -92,7 +92,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="mindvaults API",
         description="本地私有知识库问答系统",
-        version="0.7.0",
+        version="0.9.1",
         lifespan=lifespan,
     )
 
@@ -118,6 +118,10 @@ def create_app() -> FastAPI:
     # 路由注册
     app.include_router(public_router)
     app.include_router(api_router)
+
+    # MCP HTTP 传输（Docker/NAS 部署用，跨容器通信）
+    from app.mcp.server import create_sse_app as create_mcp_sse_app
+    app.mount("/mcp", create_mcp_sse_app())
 
     # slowapi 限流
     app.state.limiter = limiter

@@ -1,0 +1,42 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+*.egg-info
+*.egg
+dist
+build
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Git
+.git
+.gitignore
+
+# 运行时数据（容器内独立管理）
+uploads
+logs
+mcp/test_debug_server.py
+
+# 环境文件（通过 docker-compose 环境变量注入）
+.env
+.env.*
+
+# 测试
+tests
+test_*
+
+# 文档
+README.md
+*.md
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml

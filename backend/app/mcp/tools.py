@@ -22,11 +22,17 @@ from app.core.database import AsyncSessionLocal
 def register_tools(mcp) -> None:
     """将所有工具注册到 FastMCP 实例。"""
 
+    # 所有 MCP 工具统一标记来源为 'mcp'
+    def _set_mcp_source():
+        from app.services.monitor_service import set_event_source
+        set_event_source("mcp")
+
     # ── 1. list_knowledge_bases ──────────────────────────────
 
     @mcp.tool()
     async def list_knowledge_bases() -> str:
         """列出所有知识库，含文档数量和字符总量。"""
+        _set_mcp_source()
         from app.services.kb_service import list_kbs
 
         async with AsyncSessionLocal() as db:
@@ -55,6 +61,7 @@ def register_tools(mcp) -> None:
             question: 用户的问题
             kb_id: 知识库 ID。None=自动路由匹配，0=全库搜索
         """
+        _set_mcp_source()
         from app.schemas.chat import ChatRequest
         from app.services.chat_service import chat_stream
 
@@ -123,6 +130,7 @@ def register_tools(mcp) -> None:
             file_path: 本地文件路径
             kb_id: 目标知识库 ID
         """
+        _set_mcp_source()
         from app.services.document_service import upload_documents
         from fastapi import UploadFile
 
@@ -158,7 +166,7 @@ def register_tools(mcp) -> None:
                 result = await upload_documents(db, [upload_file], kb_id)
                 await db.commit()
 
-            uploaded = result.docs[0] if result.docs else None
+            uploaded = result.documents[0] if result.documents else None
             if uploaded:
                 return (
                     f"✅ 文档已上传\n"
@@ -184,6 +192,7 @@ def register_tools(mcp) -> None:
             kb_id: 知识库 ID
             status: 可选过滤 — completed / processing / failed
         """
+        _set_mcp_source()
         from app.services.document_service import list_documents
 
         async with AsyncSessionLocal() as db:
@@ -225,6 +234,7 @@ def register_tools(mcp) -> None:
         Args:
             doc_id: 文档 ID
         """
+        _set_mcp_source()
         from app.services.document_service import get_document
 
         async with AsyncSessionLocal() as db:

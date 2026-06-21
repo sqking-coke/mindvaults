@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usemindvaults } from "@/context/mindvaultsContext";
@@ -60,6 +61,7 @@ export default function Sidebar() {
     } catch {}
   }, []);
   const [menuConvId, setMenuConvId] = useState<string | null>(null);
+  const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // 菜单打开时，点击外部自动关闭
@@ -68,6 +70,7 @@ export default function Sidebar() {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuConvId(null);
+        setMenuRect(null);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -171,7 +174,7 @@ export default function Sidebar() {
             <img src="/logo.svg" alt="mindvaults" width={36} height={36} className="h-9 w-9 rounded-xl shadow-lg shadow-indigo-500/20" />
             <div>
               <span className="font-bold text-base bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">mindvaults</span>
-              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v0.9.0</span>
+              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v0.9.1</span>
             </div>
           </div>
         )}
@@ -370,13 +373,19 @@ export default function Sidebar() {
                               )}
                             </div>
 
-                            {/* ⋯ 按钮 + 下拉菜单 */}
+                            {/* ⋯ 按钮 + Portal 下拉菜单 */}
                             {!isEditing && (
                               <div className="absolute right-1.5">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setMenuConvId(menuConvId === conv.id ? null : conv.id);
+                                    if (menuConvId === conv.id) {
+                                      setMenuConvId(null);
+                                      setMenuRect(null);
+                                    } else {
+                                      setMenuConvId(conv.id);
+                                      setMenuRect(e.currentTarget.getBoundingClientRect());
+                                    }
                                   }}
                                   className={`p-1 rounded-md transition-all focus:outline-none ${
                                     menuConvId === conv.id
@@ -387,47 +396,6 @@ export default function Sidebar() {
                                 >
                                   <MoreHorizontal className="h-3.5 w-3.5" />
                                 </button>
-
-                                {menuConvId === conv.id && (
-                                    <div
-                                      ref={menuRef}
-                                      className="absolute right-0 top-full mt-1 z-20 w-32 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 animate-fade-in"
-                                    >
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          startRename(conv.id, conv.title, e);
-                                          setMenuConvId(null);
-                                        }}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors text-left"
-                                      >
-                                        <Edit3 className="h-3 w-3" />
-                                        重命名
-                                      </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          togglePin(conv.id);
-                                          setMenuConvId(null);
-                                        }}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors text-left"
-                                      >
-                                        {isPinned ? <><PinOff className="h-3 w-3" /> 取消置顶</> : <><Pin className="h-3 w-3" /> 置顶</>}
-                                      </button>
-                                      <div className="border-t border-slate-700 my-0.5" />
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setDeleteConvConfirm({ id: conv.id, title: conv.title });
-                                          setMenuConvId(null);
-                                        }}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-400 hover:bg-slate-700 transition-colors text-left"
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                        删除
-                                      </button>
-                                    </div>
-                                )}
                               </div>
                             )}
 
@@ -450,6 +418,65 @@ export default function Sidebar() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Portal 右键菜单 — 挂到 body 上，脱离 sidebar overflow 裁剪 */}
+      {menuConvId && menuRect && createPortal(
+        <div
+          ref={menuRef}
+          className="fixed z-[9999] w-32 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 animate-fade-in"
+          style={{
+            top: menuRect.bottom + 4,
+            left: Math.min(menuRect.left, window.innerWidth - 140),
+          }}
+        >
+          {(() => {
+            const conv = conversations.find(c => c.id === menuConvId);
+            if (!conv) return null;
+            const isPinned = pinnedIds.has(menuConvId);
+            return (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startRename(menuConvId, conv.title, e);
+                    setMenuConvId(null);
+                    setMenuRect(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors text-left"
+                >
+                  <Edit3 className="h-3 w-3" />
+                  重命名
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePin(menuConvId);
+                    setMenuConvId(null);
+                    setMenuRect(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors text-left"
+                >
+                  {isPinned ? <><PinOff className="h-3 w-3" /> 取消置顶</> : <><Pin className="h-3 w-3" /> 置顶</>}
+                </button>
+                <div className="border-t border-slate-700 my-0.5" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteConvConfirm({ id: menuConvId, title: conv.title });
+                    setMenuConvId(null);
+                    setMenuRect(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-400 hover:bg-slate-700 transition-colors text-left"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  删除
+                </button>
+              </>
+            );
+          })()}
+        </div>,
+        document.body
       )}
 
       {/* Conversation List Placeholder if KB/Ops/Stats is active */}

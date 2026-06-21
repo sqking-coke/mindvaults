@@ -8,6 +8,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "v0.9.1",
+    date: "2026-06-17",
+    title: "MCP HTTP 双模传输 + 监控事件来源追踪",
+    description:
+      "MCP Server 双模传输：在 stdio 基础上新增 HTTP/SSE 模式，FastAPI 挂载 /mcp 端点，支持 Docker 跨容器部署。监控事件来源追踪：KbMonitorEvent 新增 source 字段（web/mcp/scheduler），基于 ContextVar 在异步上下文中自动标记事件来源。5 个 MCP 工具统一标记 source=mcp，3 个定时任务标记 source=scheduler，前端 AlertManager 支持按 source 来源筛选事件。修复 MCP 上传文档返回字段 bug（result.docs→result.documents）。新增 blog/08-MCP服务与微信ClawBot接入、DB 迁移 0023_add_source_to_monitor_events。",
+    tags: ["feature", "fix", "infra", "docs"],
+  },
+  {
     version: "v0.9.0",
     date: "2026-06-10",
     title: "监控告警系统",

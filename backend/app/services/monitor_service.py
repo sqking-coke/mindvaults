@@ -6,6 +6,7 @@
 - get_active_alerts(): 未解除警告/失败事件
 - check_alerts(): 告警规则检查（由 API 或定时任务调用）
 """
+import contextvars
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -27,6 +28,22 @@ from app.schemas.monitor import (
     MonitorEventItem,
 )
 from app.utils.logger import log_event
+
+# ── 事件来源上下文（ContextVar 跨异步任务传播）──────────────
+
+_event_source: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "monitor_event_source", default="web"
+)
+
+
+def set_event_source(source: str) -> None:
+    """设置当前异步上下文的监控事件来源。调用方（MCP / scheduler）在调用 service 前设置。"""
+    _event_source.set(source)
+
+
+def get_event_source() -> str:
+    """获取当前异步上下文的监控事件来源。"""
+    return _event_source.get()
 
 
 async def _get_system_config(db: AsyncSession) -> SystemConfig:
@@ -53,8 +70,14 @@ async def write_event(
     status: str = "success",
     message: Optional[str] = None,
     extra_json: Optional[dict] = None,
+    source: Optional[str] = None,
 ) -> KbMonitorEvent:
-    """写入一条监控事件。"""
+    """写入一条监控事件。
+
+    Args:
+        source: 事件来源。None 时从 ContextVar 自动获取（默认 'web'）。
+                显式传入 'mcp' / 'scheduler' 可覆盖。
+    """
     evt = KbMonitorEvent(
         category=category,
         event=event,
@@ -65,6 +88,7 @@ async def write_event(
         status=status,
         message=message,
         extra_json=extra_json or {},
+        source=source or _event_source.get(),
     )
     db.add(evt)
     await db.flush()
@@ -89,8 +113,8 @@ async def get_dashboard_data(db: AsyncSession) -> DashboardData:
     week_ago = today_start - timedelta(days=6)
     day_ago = now - timedelta(hours=24)
 
-    # 活跃告警
-    active_alerts = await _get_active_alerts(db, today_start)
+    # 活跃告警（近 7 天未解除）
+    active_alerts = await _get_active_alerts(db, week_ago)
 
     # 路由指标
     route_metrics = await _get_route_metrics(db, today_start, yesterday_start, yesterday_end)
@@ -492,10 +516,11 @@ async def _get_insight_concept_summary(
         )
     )
 
-    # active alerts (failed events this week)
+    # active alerts (unresolved failed/warning this week)
     alert_count_result = await db.execute(
         select(func.count(KbMonitorEvent.id)).where(
-            KbMonitorEvent.status == "failed",
+            KbMonitorEvent.status.in_(["failed", "warning"]),
+            KbMonitorEvent.resolved_at.is_(None),
             KbMonitorEvent.created_at >= week_ago,
         )
     )

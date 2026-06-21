@@ -23,6 +23,9 @@ JOB_HEALTH_SCAN = "health_scan"
 
 async def _run_insight_extraction() -> None:
     """每日定时提炼：从 kb_qa_records 提炼知识点写入 kb_insights。"""
+    from app.services.monitor_service import set_event_source
+    set_event_source("scheduler")
+
     from app.core.database import AsyncSessionLocal
     from app.models.system_config import SystemConfig
     from sqlalchemy import select
@@ -55,6 +58,9 @@ async def _run_insight_extraction() -> None:
 
 async def _run_stale_entry_cleanup() -> None:
     """删除 3 天前推送但仍未提炼的 pending 外部条目。"""
+    from app.services.monitor_service import set_event_source
+    set_event_source("scheduler")
+
     from app.core.database import AsyncSessionLocal
     from app.services.external_push_service import cleanup_stale_pending_entries
 
@@ -73,6 +79,9 @@ async def _run_stale_entry_cleanup() -> None:
 
 async def _run_health_scan() -> None:
     """每周全库健康扫描：遍历所有 KB，生成诊断报告。"""
+    from app.services.monitor_service import set_event_source
+    set_event_source("scheduler")
+
     from app.core.database import AsyncSessionLocal
     from app.models.knowledge_base import KnowledgeBase
     from sqlalchemy import select
