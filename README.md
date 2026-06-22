@@ -87,6 +87,11 @@ flowchart LR
   <img src="public/screenshots/gov.jpg" alt="mindvaults 数据治理" />
 </p>
 
+## 监控看板
+<p align="center">
+  <img src="public/screenshots/monitor.jpg" alt="mindvaults 数据治理" />
+</p>
+
 ## 快速开始
 
 ```bash
