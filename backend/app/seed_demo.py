@@ -421,6 +421,68 @@ async def seed(llm_api_key: str | None = None, embedding_api_key: str | None = N
 
         print(f"[seed] 示例数据写入完成：{len(SAMPLE_KB)} 个知识库，{doc_count} 篇文档")
 
+        await _seed_monitor_events(db)
+        print("[seed] 监控事件写入完成")
+
+
+async def _seed_monitor_events(db):
+    """写入近 7 天模拟监控事件，让看板有趋势图展示。"""
+    from datetime import datetime, timedelta, timezone
+    import random
+    from app.models.monitor_event import KbMonitorEvent
+
+    await db.execute(text("DELETE FROM kb_monitor_events"))
+    await db.commit()
+
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    rng = random.Random(42)
+
+    events = []
+    for day_offset in range(7):
+        day = today_start - timedelta(days=6 - day_offset)
+        route_count = rng.randint(40, 80)
+        centroid_hits = int(route_count * rng.uniform(0.45, 0.65))
+        llm_hits = int(route_count * rng.uniform(0.15, 0.30))
+        fallback = route_count - centroid_hits - llm_hits
+
+        for _ in range(centroid_hits):
+            ts = day + timedelta(seconds=rng.randint(0, 86399))
+            events.append(KbMonitorEvent(category="routing", event="centroid_hit",
+                kb_id=rng.choice([1, 2, 3]), status="success",
+                value_float=round(rng.uniform(0.75, 0.98), 4), created_at=ts))
+        for _ in range(llm_hits):
+            ts = day + timedelta(seconds=rng.randint(0, 86399))
+            events.append(KbMonitorEvent(category="routing", event="llm_route_hit",
+                kb_id=rng.choice([1, 2, 3]), status="success",
+                value_float=round(rng.uniform(0.60, 0.90), 4), created_at=ts))
+        for _ in range(fallback):
+            ts = day + timedelta(seconds=rng.randint(0, 86399))
+            events.append(KbMonitorEvent(category="routing", event="route_fallback",
+                kb_id=1, status="warning", message="no_match", created_at=ts))
+
+    for day_offset in range(7):
+        day = today_start - timedelta(days=6 - day_offset)
+        for _ in range(rng.randint(20, 50)):
+            ts = day + timedelta(seconds=rng.randint(0, 86399))
+            events.append(KbMonitorEvent(category="llm", event="llm_call_completed",
+                status="success", value_float=round(rng.uniform(0.3, 6.0), 3),
+                value_int=rng.randint(200, 8000), created_at=ts))
+        for _ in range(4):
+            ts = day + timedelta(seconds=rng.randint(0, 86399))
+            events.append(KbMonitorEvent(category="external", event="external_push_received",
+                status="success", value_int=rng.randint(3, 15), created_at=ts))
+            events.append(KbMonitorEvent(category="concept", event="concept_extraction_completed",
+                status="success", value_int=rng.randint(2, 8), created_at=ts))
+            events.append(KbMonitorEvent(category="health", event="health_scan_completed",
+                status="success", value_float=round(rng.uniform(85, 98), 1), created_at=ts))
+            events.append(KbMonitorEvent(category="insight", event="insight_batch_completed",
+                status="success", value_int=rng.randint(1, 5), created_at=ts))
+
+    db.add_all(events)
+    await db.commit()
+    print(f"[seed]     已写入 {len(events)} 条模拟监控事件")
+
 
 if __name__ == "__main__":
     asyncio.run(seed())
