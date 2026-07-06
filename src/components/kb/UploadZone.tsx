@@ -11,7 +11,8 @@ interface UploadZoneProps {
 export default function UploadZone({ showToast }: UploadZoneProps) {
   const {
     activeKbId,
-    uploadDocuments
+    uploadDocuments,
+    isDemo,
   } = usemindvaults();
 
   const [isDragging, setIsDragging] = useState(false);
@@ -19,6 +20,10 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
 
   const handleFiles = (files: File[]) => {
     if (!activeKbId || files.length === 0) return;
+    if (isDemo) {
+      showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+      return;
+    }
     uploadDocuments(activeKbId, files);
     showToast(`正在上传 ${files.length} 个文件到后端...`, "info");
   };
@@ -50,10 +55,20 @@ export default function UploadZone({ showToast }: UploadZoneProps) {
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      onClick={() => fileInputRef.current?.click()}
+      onClick={() => {
+        if (isDemo) {
+          showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+          return;
+        }
+        fileInputRef.current?.click();
+      }}
       onKeyDown={(e) => {
         if ((e.key === "Enter" || e.key === " ") && !isDragging) {
           e.preventDefault();
+          if (isDemo) {
+            showToast("演示环境不支持上传文档，请自部署后体验完整功能", "warning");
+            return;
+          }
           fileInputRef.current?.click();
         }
       }}

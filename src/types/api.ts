@@ -91,6 +91,7 @@ export interface Message {
   citations?: Citation[];
   thinkingSteps?: ThinkingStep[];
   roundKey?: string;
+  qaRecordId?: number;  // 服务端返回的真实 DB 记录 ID，用于知识沉淀
   concepts?: ConceptInfo[];  // 关联的概念术语，用于 hover 卡片
 }
 

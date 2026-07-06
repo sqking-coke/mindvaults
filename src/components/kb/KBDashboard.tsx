@@ -13,11 +13,13 @@ import {
 } from "lucide-react";
 
 export default function KBDashboard() {
-  const { 
-    knowledgeBases, 
-    setActiveKbId, 
+  const {
+    knowledgeBases,
+    setActiveKbId,
     addKnowledgeBase,
-    deleteKnowledgeBase
+    deleteKnowledgeBase,
+    isDemo,
+    showToast,
   } = usemindvaults();
 
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -36,6 +38,10 @@ export default function KBDashboard() {
 
   const handleCreateKb = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDemo) {
+      showToast("演示环境不支持新建知识库，请自部署后体验完整功能", "warning");
+      return;
+    }
     if (!newKbName.trim()) return;
     addKnowledgeBase(newKbName.trim(), newKbDesc.trim());
     setNewKbName("");
@@ -45,6 +51,10 @@ export default function KBDashboard() {
 
   const handleDeleteKb = (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isDemo) {
+      showToast("演示环境不支持删除知识库，请自部署后体验完整功能", "warning");
+      return;
+    }
     setDeleteKbConfirm({ id, name });
   };
 
@@ -64,7 +74,13 @@ export default function KBDashboard() {
         </div>
 
         <button
-          onClick={() => setShowCreateForm(true)}
+          onClick={() => {
+            if (isDemo) {
+              showToast("演示环境不支持新建知识库，请自部署后体验完整功能", "warning");
+              return;
+            }
+            setShowCreateForm(true);
+          }}
           className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-medium py-2 px-4 rounded-xl shadow-md shadow-indigo-600/10 text-xs transition-all flex items-center gap-1.5 shrink-0"
         >
           <Plus className="h-4 w-4" />
@@ -138,7 +154,13 @@ export default function KBDashboard() {
             <Database className="h-12 w-12 text-slate-200 mx-auto animate-pulse" />
             <p className="text-sm font-semibold text-slate-600">当前没有配置任何物理知识库目录</p>
             <button
-              onClick={() => setShowCreateForm(true)}
+              onClick={() => {
+                if (isDemo) {
+                  showToast("演示环境不支持新建知识库，请自部署后体验完整功能", "warning");
+                  return;
+                }
+                setShowCreateForm(true);
+              }}
               className="text-xs bg-indigo-50 text-indigo-600 font-bold border border-indigo-150 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors inline-block"
             >
               立即创建首个挂载点
@@ -167,7 +189,6 @@ export default function KBDashboard() {
                     <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white shadow-sm transition-all duration-200">
                       <Database className="h-5 w-5" />
                     </div>
-                    {kb.id !== 1 && (
                       <button
                         onClick={(e) => handleDeleteKb(String(kb.id), kb.name, e)}
                         onKeyDown={(e) => e.stopPropagation()}
@@ -177,7 +198,6 @@ export default function KBDashboard() {
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
-                    )}
                   </div>
                   
                   <h3 className="font-bold text-slate-800 text-sm truncate group-hover:text-indigo-600 transition-colors">

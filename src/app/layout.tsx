@@ -4,7 +4,7 @@ import { mindvaultsProvider as MindvaultsProvider } from "@/context/mindvaultsCo
 import Toast from "@/components/shared/Toast";
 
 export const metadata: Metadata = {
-  title: "mindvaults v0.7.0 — 本地私有化 RAG 知识库",
+  title: "mindvaults v1.0.0-beta — 本地私有化 RAG 知识库",
   description:
     "开源、隐私至上的本地 RAG 知识库。支持本地 Ollama / 云端 API 双模式，PDF/Markdown/Word 文档导入，pgvector 向量检索，SSE 流式对话，引用溯源。你的数据，永远归你所有。",
   icons: {

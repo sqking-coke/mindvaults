@@ -22,7 +22,8 @@ export default function KBPage() {
     knowledgeBases,
     activeKbId,
     setActiveKbId,
-    isKbLoading
+    isKbLoading,
+    isDemo,
   } = usemindvaults();
 
   // Navigation states
@@ -139,7 +140,13 @@ export default function KBPage() {
                       </div>
                     </div>
                     <button
-                      onClick={() => setIsImportOpen(true)}
+                      onClick={() => {
+                        if (isDemo) {
+                          showToast("演示环境不支持导入 Obsidian Vault，请自部署后体验完整功能", "warning");
+                          return;
+                        }
+                        setIsImportOpen(true);
+                      }}
                       className="mt-4 w-full py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 hover:text-violet-700 rounded-xl text-xs font-semibold text-violet-600 transition-all focus:outline-none flex items-center justify-center gap-1.5 shadow-sm"
                     >
                       <FolderOpen className="h-4 w-4" />

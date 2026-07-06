@@ -34,6 +34,7 @@ export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh
     reindexDocument,
     toggleDocumentStatus,
     deleteDocument,
+    isDemo,
   } = usemindvaults();
 
   const kbNameById = (kbId: string) => knowledgeBases.find(kb => String(kb.id) === kbId)?.name || "—";
@@ -318,6 +319,7 @@ export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh
                           )}
 
                           {/* 删除文档 */}
+                          {!isDemo && (
                           <button
                             onClick={() => setDeleteConfirm({ id: doc.id, name: doc.name })}
                             className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-500 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
@@ -326,6 +328,7 @@ export default function DocumentTable({ opsMode = false, opsDocuments, onRefresh
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
+                          )}
                         </div>
                       </td>
                     </tr>

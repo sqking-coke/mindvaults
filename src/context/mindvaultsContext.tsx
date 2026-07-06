@@ -75,11 +75,12 @@ interface mindvaultsContextType {
   loadSystemConfig: () => Promise<void>;
   updateSystemConfig: (config: SystemConfigRequest) => Promise<boolean>;
   loadOllamaModels: () => Promise<void>;
-  toast: { message: string; type: "success" | "error" } | null;
-  showToast: (message: string, type?: "success" | "error") => void;
+  toast: { message: string; type: "success" | "error" | "warning" } | null;
+  showToast: (message: string, type?: "success" | "error" | "warning") => void;
   configRequiredDialog: boolean;
   configRequiredMessage: string;
   dismissConfigRequiredDialog: () => void;
+  isDemo: boolean;
 }
 
 const mindvaultsContext = createContext<mindvaultsContextType | undefined>(undefined);
@@ -103,14 +104,17 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [activeKbId, setActiveKbId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
 
+  // --- Demo mode ---
+  const [isDemo] = useState(true);
+
   // --- Toast notification ---
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "warning" } | null>(null);
 
   // --- Config required dialog ---
   const [configRequiredDialog, setConfigRequiredDialog] = useState(false);
   const [configRequiredMessage, setConfigRequiredMessage] = useState("");
   const dismissConfigRequiredDialog = useCallback(() => setConfigRequiredDialog(false), []);
-  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+  const showToast = useCallback((message: string, type: "success" | "error" | "warning" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
@@ -162,6 +166,10 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // 从后端获取真实 KB 列表
         const kbs = await fetchKnowledgeBases();
         if (cancelled) return;
+
+        if (isDemo) {
+          fetch("/api/v1/admin/reset-demo", { method: "POST" }).catch(() => {});
+        }
 
         if (kbs.length > 0) {
           setKnowledgeBases(kbs);
@@ -465,7 +473,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                         ...c,
                         messages: c.messages.map((m) =>
                           m.id === assistantId
-                            ? { ...m, id: realAssistantId, citations, roundKey, concepts }
+                            ? { ...m, id: realAssistantId, qaRecordId, citations, roundKey, concepts }
                             : m,
                         ),
                       }
@@ -830,6 +838,7 @@ export const mindvaultsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         configRequiredDialog,
         configRequiredMessage,
         dismissConfigRequiredDialog,
+        isDemo,
       }}
     >
       {children}

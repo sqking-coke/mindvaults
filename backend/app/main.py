@@ -18,7 +18,7 @@ from app.core.exceptions import (
     validation_exception_handler,
     unhandled_exception_handler,
 )
-from app.core.middleware import limiter, request_log_middleware
+from app.core.middleware import limiter, request_log_middleware, ip_blacklist_middleware
 
 
 @asynccontextmanager
@@ -105,6 +105,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # IP 黑名单（demo 模式生效）
+    app.middleware("http")(ip_blacklist_middleware)
 
     # 请求日志中间件
     app.middleware("http")(request_log_middleware)

@@ -13,6 +13,7 @@ from app.api.v1.external import external_push_router, deposition_config_router
 from app.api.v1.concepts import router as concepts_router
 from app.api.v1.kb_health import router as kb_health_router
 from app.api.v1.monitor import router as monitor_router
+from app.api.v1.admin import router as admin_router
 from app.api.deps import verify_api_key
 
 api_router = APIRouter(prefix="/api/v1", dependencies=[Depends(verify_api_key)])
@@ -29,6 +30,7 @@ api_router.include_router(deposition_config_router, prefix="/kb")
 api_router.include_router(concepts_router, prefix="/kb")
 api_router.include_router(kb_health_router, prefix="/kb")
 api_router.include_router(monitor_router, prefix="/kb")
+api_router.include_router(admin_router, prefix="/kb")
 
 # Health check + external push (uses own KB-level API key auth, no global auth)
 public_router = APIRouter(prefix="/api/v1")

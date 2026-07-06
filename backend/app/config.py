@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     SLOW_REQUEST_THRESHOLD_MS: int = 5000
     SLOW_RETRIEVAL_THRESHOLD_MS: int = 500
 
+    # --- Demo 模式 ---
+    DEMO_MODE: bool = False
+
     @property
     def allowed_extensions_list(self) -> list[str]:
         return [ext.strip() for ext in self.ALLOWED_EXTENSIONS.split(",")]

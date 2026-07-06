@@ -4,14 +4,24 @@ import json
 import re
 
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
 from loguru import logger
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.config import settings
+from app.core.redis import get_redis
 from app.utils.logger import sanitize_body, should_log_body, is_health_check
 
 limiter = Limiter(key_func=get_remote_address)
 TRACE_HEADER = "X-Trace-Id"
+
+# ── IP 黑名单配置 ──
+BLACKLIST_WINDOW_SEC = 60       # 统计窗口 60 秒
+BLACKLIST_THRESHOLD = 300       # 窗口内超过 300 次请求即封禁
+BLACKLIST_BAN_SEC = 600         # 封禁时长 10 分钟
+BLACKLIST_REDIS_KEY = "demo:blacklist"
+BLACKLIST_RATE_KEY = "demo:rate"
 
 # 从路径中提取 session_id 的模式
 _SESSION_PATH_PATTERNS = [
@@ -44,6 +54,70 @@ def _extract_session_id(request: Request, body_dict: dict | None) -> str:
 
 def _generate_trace_id() -> str:
     return uuid.uuid4().hex[:16]
+
+
+async def _get_client_ip(request: Request) -> str:
+    """获取客户端真实 IP（优先 X-Forwarded-For）。"""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def ip_blacklist_middleware(request: Request, call_next):
+    """Demo 模式 IP 高频访问黑名单中间件。
+
+    仅当 DEMO_MODE=true 时生效。在 60 秒窗口内超过 300 次请求的 IP
+    将被封禁 10 分钟。Redis 不可用时自动降级放行。
+    """
+    if not settings.DEMO_MODE:
+        return await call_next(request)
+
+    # 健康检查不计数
+    if is_health_check(request.url.path):
+        return await call_next(request)
+
+    ip = await _get_client_ip(request)
+    now = int(time.time())
+    window_key = f"{BLACKLIST_RATE_KEY}:{ip}:{now // BLACKLIST_WINDOW_SEC}"
+
+    try:
+        redis = await get_redis()
+        if not redis:
+            return await call_next(request)
+
+        # 检查是否在黑名单中
+        ban_until = await redis.zscore(BLACKLIST_REDIS_KEY, ip)
+        if ban_until is not None and float(ban_until) > now:
+            logger.warning(f"ip_blacklisted ip={ip} banned_until={int(float(ban_until))}")
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "code": 429,
+                    "message": f"访问过于频繁，IP 已被临时限制，请 {int(float(ban_until) - now)} 秒后重试",
+                    "data": None,
+                },
+            )
+
+        # 计数
+        count = await redis.incr(window_key)
+        if count == 1:
+            await redis.expire(window_key, BLACKLIST_WINDOW_SEC + 10)
+
+        # 超阈值 → 加入黑名单
+        if count > BLACKLIST_THRESHOLD:
+            ban_until_ts = now + BLACKLIST_BAN_SEC
+            await redis.zadd(BLACKLIST_REDIS_KEY, {ip: ban_until_ts})
+            await redis.expire(BLACKLIST_REDIS_KEY, BLACKLIST_BAN_SEC * 2)
+            logger.warning(
+                f"ip_rate_block ip={ip} count={count} "
+                f"threshold={BLACKLIST_THRESHOLD} ban_seconds={BLACKLIST_BAN_SEC}"
+            )
+
+    except Exception as exc:
+        logger.debug(f"ip_blacklist_bypass error={exc}")
+
+    return await call_next(request)
 
 
 async def request_log_middleware(request: Request, call_next):

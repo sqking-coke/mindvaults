@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { usemindvaults } from "@/context/mindvaultsContext";
-import { fetchSystemInfo } from "@/services/ragService";
 import type { SystemInfo } from "@/services/ragService";
 import {
   MessageSquare,
@@ -51,7 +50,14 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
 
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>({
+    cpu_name: "Apple M4 Ultra",
+    cpu_cores_logical: 32,
+    cpu_cores_physical: 24,
+    memory_total: "256 GB",
+    memory_used: "58.3 GB",
+    memory_percent: 22.8,
+  });
 
   // 客户端挂载后恢复置顶状态，避免 SSR hydration 不匹配
   useEffect(() => {
@@ -77,23 +83,6 @@ export default function Sidebar() {
     return () => document.removeEventListener("mousedown", handler);
   }, [menuConvId]);
   const [deleteConvConfirm, setDeleteConvConfirm] = useState<{ id: string; title: string } | null>(null);
-
-  // 获取系统信息（Demo 模式直接展示预设配置）
-  useEffect(() => {
-    const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-    if (isDemo) {
-      setSystemInfo({
-        cpu_name: "Apple M4 Ultra",
-        cpu_cores_logical: 32,
-        cpu_cores_physical: 24,
-        memory_total: "256 GB",
-        memory_used: "58.3 GB",
-        memory_percent: 22.8,
-      });
-      return;
-    }
-    fetchSystemInfo().then(setSystemInfo).catch(() => {});
-  }, []);
 
   const startRename = (id: string, currentTitle: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -174,7 +163,7 @@ export default function Sidebar() {
             <img src="/logo.svg" alt="mindvaults" width={36} height={36} className="h-9 w-9 rounded-xl shadow-lg shadow-indigo-500/20" />
             <div>
               <span className="font-bold text-base bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">mindvaults</span>
-              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v0.9.1</span>
+              <span className="block text-[10px] text-indigo-400 font-medium tracking-wider">v1.0.0-beta</span>
             </div>
           </div>
         )}
