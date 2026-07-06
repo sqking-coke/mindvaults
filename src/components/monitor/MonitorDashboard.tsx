@@ -307,8 +307,8 @@ export default function MonitorDashboard() {
   const { route_metrics: rm, llm_metrics: lm } = data;
 
   const fmtPct = (v: number) => `${(v * 100).toFixed(0)}%`;
-  const fmtChange = (v: number | null) => {
-    if (v == null) return null;
+  const fmtChange = (v: number | null): "up" | "down" | "flat" | undefined => {
+    if (v == null) return undefined;
     if (v > 0) return "up";
     if (v < 0) return "down";
     return "flat";
@@ -432,7 +432,7 @@ export default function MonitorDashboard() {
                     fontSize: "12px",
                   }}
                   labelStyle={{ color: "#e2e8f0" }}
-                  formatter={(value: number) => `${(value * 100).toFixed(1)}%`}
+                  formatter={(value: any) => `${(Number(value) * 100).toFixed(1)}%`}
                 />
                 <Area
                   type="monotone"
@@ -487,7 +487,7 @@ export default function MonitorDashboard() {
                     fontSize: "12px",
                   }}
                   labelStyle={{ color: "#e2e8f0" }}
-                  formatter={(value: number) => value.toLocaleString()}
+                  formatter={(value: any) => Number(value).toLocaleString()}
                 />
                 <Bar dataKey="输入Token" fill="#fbbf24" radius={[2, 2, 0, 0]} stackId="a" />
                 <Bar dataKey="输出Token" fill="#f59e0b" radius={[0, 0, 0, 0]} stackId="a" />

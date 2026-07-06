@@ -574,7 +574,7 @@ export default function HealthCenter() {
 // ═════════════════════════════════════════════════════════════
 
 function ReportOverview({ report }: { report: HealthReportResponse }) {
-  const { health_score, total_chunks, duplicate_groups, low_quality, outdated, orphans, fragment_clusters, health_breakdown } = report;
+  const { health_score, total_chunks, duplicate_groups, low_quality, outdated, orphans, fragment_clusters } = report;
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">

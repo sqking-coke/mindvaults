@@ -20,4 +20,4 @@ slowapi==0.1.9
 pyyaml==6.0.2
 psutil==7.0.0
 apscheduler==3.10.4
-mcp>=1.27
+# mcp>=1.27  -- 可选；如需 MCP HTTP 传输功能，手动 pip install mcp
