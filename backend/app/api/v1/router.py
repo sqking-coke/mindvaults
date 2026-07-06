@@ -30,7 +30,7 @@ api_router.include_router(deposition_config_router, prefix="/kb")
 api_router.include_router(concepts_router, prefix="/kb")
 api_router.include_router(kb_health_router, prefix="/kb")
 api_router.include_router(monitor_router, prefix="/kb")
-api_router.include_router(admin_router, prefix="/kb")
+api_router.include_router(admin_router)
 
 # Health check + external push (uses own KB-level API key auth, no global auth)
 public_router = APIRouter(prefix="/api/v1")
