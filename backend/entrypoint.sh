@@ -7,9 +7,6 @@ until pg_isready -h db -U mindvaults; do sleep 1; done
 echo "==> Waiting for Redis..."
 until redis-cli -h redis ping | grep -q PONG; do sleep 1; done
 
-echo "==> Waiting for Ollama..."
-until curl -sf http://ollama:11434/api/tags > /dev/null; do sleep 2; done
-
 echo "==> Running Alembic migrations..."
 alembic upgrade head
 
